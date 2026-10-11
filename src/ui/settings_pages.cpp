@@ -890,14 +890,14 @@ void AppUI::overlay_page()
 
 	ImGui::BeginGroup();
 	begin_card("##toast", cols.col_w);
-	card_header("In-game pop-up", "A small card confirms every clip. It never takes focus or blocks clicks.");
-	if (toggle_row("Show pop-ups", "Works in borderless and windowed games.", &o.toast))
+	card_header("Clip banner", "Slides in when you press the key, animates while the clip is written, then says \"Clip saved\". Never takes focus or blocks clicks.");
+	if (toggle_row("Show the clip banner", "Works in borderless and windowed games.", &o.toast))
 		mark_settings_dirty();
 	{
 		static const std::vector<std::string> ids = {"top-left", "top-right", "bottom-left", "bottom-right"};
 		int pi = (int)(std::find(ids.begin(), ids.end(), o.position) - ids.begin());
 		if (pi >= 4)
-			pi = 1;
+			pi = 0;
 		text(fonts.body_semibold, col::text, "Position");
 		if (pill_grid("pos", {"Top left", "Top right", "Bottom left", "Bottom right"}, pi, 2)) {
 			o.position = ids[pi];
@@ -907,7 +907,7 @@ void AppUI::overlay_page()
 		if (slider_int("##secs", &o.toast_seconds, 1, 10, "%d s", -1))
 			mark_settings_dirty();
 	}
-	if (secondary_button("Show a test pop-up##test", ImVec2(-1, px(44)), Icon::Bell)) {
+	if (secondary_button("Show a test banner##test", ImVec2(-1, px(44)), Icon::Bell)) {
 		flush_settings(true);
 		send({{"cmd", "test_toast"}});
 	}
@@ -924,7 +924,7 @@ void AppUI::overlay_page()
 		mark_settings_dirty();
 	if (o.sound && slider_int("##vol", &o.sound_volume, 0, 100, "Volume %d%%", -1))
 		mark_settings_dirty();
-	if (toggle_row("REC indicator while recording", "A small dot and timer in the top-left corner.", &o.rec_indicator))
+	if (toggle_row("REC indicator during full recordings", "Off by default. A small dot and timer in the corner while a full session records (never for clips).", &o.rec_indicator))
 		mark_settings_dirty();
 	end_card();
 

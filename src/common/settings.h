@@ -110,11 +110,11 @@ struct AudioSettings {
 
 struct OverlaySettings {
 	bool toast = true;
-	std::string position = "top-right"; /* top-right | top-left | bottom-right | bottom-left */
+	std::string position = "top-left"; /* top-left | top-right | bottom-left | bottom-right */
 	int toast_seconds = 3;
 	bool sound = true;
 	int sound_volume = 60;
-	bool rec_indicator = true;
+	bool rec_indicator = false; /* off by default: keeps the screen clean */
 };
 
 struct ShareSettings {

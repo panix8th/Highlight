@@ -648,8 +648,10 @@ bool combo(const char *label, int *current, const std::vector<std::string> &item
 {
 	ImGui::BeginGroup();
 	if (label && *label && label[0] != '#') {
-		text(fonts.small_semibold, col::text, "%s", label);
-		ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(4));
+		/* Drawn by hand: ImGui::Text would set a baseline that shifts combos placed side by side. */
+		ImVec2 lp = ImGui::GetCursorScreenPos();
+		ImGui::GetWindowDrawList()->AddText(fonts.small_semibold, fonts.small_semibold->FontSize, lp, col::text, label);
+		ImGui::Dummy(ImVec2(width > 0 ? width : 1.0f, fonts.small_semibold->FontSize + px(4)));
 	}
 	push_field_style();
 	ImGui::SetNextItemWidth(width);

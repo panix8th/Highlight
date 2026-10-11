@@ -60,3 +60,11 @@ jobs:
         with:
           files: dist/Highlight-*-windows-x64.zip
           generate_release_notes: true
+          body: |
+            ## Install
+            1. Download **`Highlight-*-windows-x64.zip`** below (under Assets).
+            2. Unzip it anywhere and run **`Highlight.exe`**. No installer needed.
+            3. Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
+
+            Windows 10 2004+ (64-bit) and a DirectX 11 GPU. NVIDIA NVENC is used when available.
+            If SmartScreen warns about an unknown app, click **More info → Run anyway** (the build isn't code-signed yet).

@@ -210,6 +210,7 @@ void AppUI::editor_page()
 	/* toolbar */
 	ImDrawList *dl = ImGui::GetWindowDrawList();
 	const float avail = ImGui::GetContentRegionAvail().x;
+	const float row_x = ImGui::GetCursorPosX();
 	if (secondary_button("Clips##back", ImVec2(px(96), px(44)), Icon::ChevronLeft)) {
 		editor_close();
 		page_ = Page::Library;
@@ -232,7 +233,7 @@ void AppUI::editor_page()
 		ImGui::Dummy(ImVec2(avail - px(330), px(44)));
 	}
 	ImGui::EndGroup();
-	ImGui::SameLine(avail - px(200));
+	ImGui::SameLine(row_x + avail - px(44) * 3 - px(16));
 	bool fav = library_.is_favorite(e.clip.path);
 	if (icon_button("##fav", fav ? Icon::StarFilled : Icon::Star, px(44), fav ? "Remove from favourites" : "Favourite",
 			fav ? col::accent : col::muted, true)) {
@@ -274,13 +275,14 @@ void AppUI::editor_page()
 
 	ImGui::BeginGroup();
 	{
-		/* player */
+		/* player: leave room for the transport row and the whole timeline */
 		float ph = main_w * 9.0f / 16.0f;
-		float max_h = std::max(px(220), ImGui::GetMainViewport()->Size.y * 0.5f);
+		const float timeline_h = px(196) + (float)e.lanes.size() * px(52);
+		const float room = ImGui::GetContentRegionAvail().y - px(62) - timeline_h - px(28);
+		const float max_h = std::max(px(200), room);
 		float pw = main_w;
-		if (ph > max_h) {
+		if (ph > max_h)
 			ph = max_h;
-		}
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		bool clicked = ImGui::InvisibleButton("##video", ImVec2(pw, ph));
 		dl->AddRectFilled(p, ImVec2(p.x + pw, p.y + ph), IM_COL32(0x06, 0x07, 0x08, 255), px(12));
@@ -429,7 +431,7 @@ void AppUI::editor_timeline(float width)
 	}
 
 	/* geometry */
-	const float label_w = px(132);
+	const float label_w = px(156);
 	const float gap = px(12);
 	ImVec2 origin = ImGui::GetCursorScreenPos();
 	const float track_x = origin.x + label_w + gap;

@@ -1,5 +1,6 @@
 #include "share.h"
 #include "av_util.h"
+#include "remux.h"
 
 #include "../common/log.h"
 #include "../common/strings.h"
@@ -818,11 +819,35 @@ bool ShareJob::run(const std::function<bool(float)> &progress, std::string *err,
 bool run_share(const ShareRequest &req, SharePlan plan, const std::function<bool(float)> &progress, std::string *err,
 	       int64_t *out_bytes)
 {
+	/* How big the selected part of the original is, and whether it is already in the asked-for codec. */
+	MediaInfo src = probe(req.input);
+	double sel_end = req.end > 0 ? std::min(req.end, src.duration) : src.duration;
+	double sel_len = std::max(0.1, sel_end - std::max(0.0, req.start));
+	int64_t src_part = src.duration > 0 ? (int64_t)((double)src.file_size * sel_len / src.duration) : 0;
+	std::string src_codec = to_lower(src.video_codec);
+	const bool same_codec = src_codec == plan.codec;
+
 	for (int attempt = 0; attempt < 2; attempt++) {
 		int64_t bytes = 0;
 		ShareJob job(req, plan);
 		if (!job.run(progress, err, &bytes))
 			return false;
+		/* Re-encoding an already small clip can make it bigger. If the original part
+		 * fits the limit and is in the same format, a lossless copy is the better result. */
+		if (same_codec && src_part > 0 && bytes > src_part &&
+		    (plan.target_bytes <= 0 || src_part <= plan.target_bytes)) {
+			TrimOptions opt;
+			opt.start = req.start;
+			opt.end = req.end;
+			opt.audio_streams = req.audio_streams;
+			opt.format = "mp4";
+			std::string e2;
+			if (trim_lossless(req.input, req.output, opt, &e2)) {
+				std::error_code ec;
+				bytes = (int64_t)std::filesystem::file_size(widen(req.output), ec);
+				HL_INFO("Share copy: the original was already smaller, used a lossless copy");
+			}
+		}
 		if (plan.target_bytes > 0 && bytes > plan.target_bytes && plan.video_bitrate > 0 && attempt == 0) {
 			double scale = (double)plan.target_bytes / (double)bytes * 0.93;
 			plan.video_bitrate = std::max<int64_t>(100000, (int64_t)(plan.video_bitrate * scale));

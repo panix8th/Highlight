@@ -12,6 +12,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <thread>
 #include <vector>
@@ -26,7 +27,7 @@ enum : UINT {
 	WM_APP_CALL = WM_APP + 3,
 };
 
-enum : UINT_PTR { TIMER_STATUS = 1, TIMER_CLEANUP = 2 };
+enum : UINT_PTR { TIMER_STATUS = 1, TIMER_CLEANUP = 2, TIMER_TEST_TOAST = 3 };
 
 enum : int {
 	HK_SAVE = 1,
@@ -51,6 +52,14 @@ enum : UINT {
 };
 
 static const wchar_t *k_window_class = L"HighlightCore";
+
+/* 65 -> "65 seconds", 300 -> "5:00" */
+static std::string span_text(double seconds)
+{
+	if (seconds < 119.5)
+		return std::to_string((int)std::lround(seconds)) + " seconds";
+	return format_duration(seconds);
+}
 
 /* ------------------------------------------------------------------ */
 
@@ -136,6 +145,17 @@ int App::run(HINSTANCE inst, bool open_ui)
 	};
 	ev.error = [this](const std::string &msg) { post([this, msg]() { toast(ToastKind::Error, "Highlight", msg); }); };
 
+	/* Accept UI connections right away; requests are handled once the message loop runs. */
+	ipc_.start([this](const ipc::json &msg, ipc::Connection &) {
+		std::string text = msg.dump();
+		post([this, text]() {
+			try {
+				handle_ipc(ipc::json::parse(text));
+			} catch (...) {
+			}
+		});
+	});
+
 	std::string err;
 	engine_ok_ = engine_.init(settings_, ev, &err);
 	if (!engine_ok_) {
@@ -146,16 +166,6 @@ int App::run(HINSTANCE inst, bool open_ui)
 
 	apply_hotkeys();
 	hotkeys_.start([this](int id, bool pressed) { PostMessageW(hwnd_, WM_APP_HOTKEY, (WPARAM)id, pressed ? 1 : 0); });
-
-	ipc_.start([this](const ipc::json &msg, ipc::Connection &) {
-		std::string text = msg.dump();
-		post([this, text]() {
-			try {
-				handle_ipc(ipc::json::parse(text));
-			} catch (...) {
-			}
-		});
-	});
 
 	update_buffer_state();
 	SetTimer(hwnd_, TIMER_STATUS, 1000, nullptr);
@@ -240,6 +250,19 @@ LRESULT App::handle(UINT msg, WPARAM wp, LPARAM lp)
 				overlay_.set_recording(true, engine_.recording_seconds());
 		} else if (wp == TIMER_CLEANUP) {
 			cleanup_async();
+		} else if (wp == TIMER_TEST_TOAST) {
+			KillTimer(hwnd_, TIMER_TEST_TOAST);
+			/* Shown directly: the test started its card even with banners switched off. */
+			ToastContent c;
+			c.kind = ToastKind::Saved;
+			c.title = "Clip saved";
+			c.line1 = "Last " + span_text(settings_.clipping.clip_seconds + 2) + " · " +
+				  std::to_string(engine_.output_height()) + "p" + std::to_string(engine_.fps()) + " · test";
+			c.line2 = "Example_clip.mp4";
+			c.key = settings_.hotkeys.save.to_string();
+			if (c.key == "Not set")
+				c.key.clear();
+			overlay_.show_toast(c, settings_.overlay.position, settings_.overlay.toast_seconds);
 		}
 		return 0;
 	case WM_COMMAND:
@@ -376,9 +399,16 @@ void App::save(int pre, const std::string &key)
 	pending_keys_[id] = key;
 	if (settings_.overlay.sound)
 		play_cue(Cue::Saved, settings_.overlay.sound_volume);
-	if (post_s > 0)
-		toast(ToastKind::Info, "Saving clip", "Last " + format_duration(pre) + " + " + std::to_string(post_s) + " s after",
-		      "Keep playing", key);
+	if (settings_.overlay.toast) {
+		ToastContent c;
+		c.kind = ToastKind::Working;
+		c.title = "Saving clip";
+		c.line1 = "Last " + span_text(pre) + (post_s > 0 ? " + " + std::to_string(post_s) + " s after" : "");
+		std::string game = engine_.game();
+		c.line2 = post_s > 0 ? "Keep playing, still recording" : (game.empty() ? "Writing the file" : game);
+		c.key = key == "Not set" ? "" : key;
+		overlay_.show_progress(c, settings_.overlay.position, post_s + 1.0);
+	}
 }
 
 void App::on_clip_done(const ClipResult &r)
@@ -397,9 +427,11 @@ void App::on_clip_done(const ClipResult &r)
 		return;
 	}
 
-	std::string spec = format_duration(r.duration) + " · " + std::to_string(engine_.output_height()) + "p" +
+	std::string spec = "Last " + span_text(r.duration) + " · " + std::to_string(engine_.output_height()) + "p" +
 			   std::to_string(engine_.fps()) + " · " + format_bytes(r.bytes);
-	toast(ToastKind::Saved, "Clip saved", spec, r.path, key);
+	/* The file name already carries the game and time; the folder is in the app. */
+	const size_t slash = r.path.find_last_of("\\/");
+	toast(ToastKind::Saved, "Clip saved", spec, slash == std::string::npos ? r.path : r.path.substr(slash + 1), key);
 	saved_flash_until_ = GetTickCount64() + 2000;
 	update_tray();
 	ipc_.broadcast({{"evt", "clip_saved"},
@@ -511,11 +543,19 @@ void App::handle_ipc(const ipc::json &msg)
 	} else if (cmd == "open_folder") {
 		open_clips_folder();
 	} else if (cmd == "test_toast") {
-		toast(ToastKind::Saved, "Clip saved", "1:05 · " + std::to_string(engine_.output_height()) + "p" +
-							     std::to_string(engine_.fps()) + " · 325 MB",
-		      settings_.clips_dir() + "\\Example.mp4", settings_.hotkeys.save.to_string());
+		/* Same sequence as a real save: animated "Saving clip", then "Clip saved". */
+		ToastContent c;
+		c.kind = ToastKind::Working;
+		c.title = "Saving clip";
+		c.line1 = "Last " + span_text(settings_.clipping.clip_seconds) + " + 2 s after";
+		c.line2 = "This is a test banner";
+		c.key = settings_.hotkeys.save.to_string();
+		if (c.key == "Not set")
+			c.key.clear();
+		overlay_.show_progress(c, settings_.overlay.position, 2.0);
 		if (settings_.overlay.sound)
 			play_cue(Cue::Saved, settings_.overlay.sound_volume);
+		SetTimer(hwnd_, TIMER_TEST_TOAST, 2600, nullptr);
 	} else if (cmd == "quit") {
 		PostQuitMessage(0);
 	}
