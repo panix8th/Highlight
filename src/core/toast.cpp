@@ -160,10 +160,15 @@ static void draw_card(Graphics &g, int w, int h, float s, const ToastContent &c,
 	}
 	case ToastKind::Info:
 	default: {
-		g.FillRectangle(&ink, cx - 12 * s, cy - 10 * s, 4.5f * s, 20 * s);
-		g.FillRectangle(&ink, cx + 7.5f * s, cy - 10 * s, 4.5f * s, 20 * s);
-		PointF tri[] = {PointF(cx - 5.5f * s, cy - 6 * s), PointF(cx - 5.5f * s, cy + 6 * s),
-				PointF(cx + 3.5f * s, cy)};
+		/* the Highlight logo, on the grid of assets/icons/highlight.png (256 px) */
+		const REAL k = 42 * s / 256.0f, ox = 16 * s, oy = 18 * s;
+		for (REAL x0 : {58.0f, 166.0f}) {
+			GraphicsPath bar;
+			rounded(bar, ox + x0 * k, oy + 64 * k, 32 * k, 128 * k, 16 * k);
+			g.FillPath(&ink, &bar);
+		}
+		PointF tri[] = {PointF(ox + 106 * k, oy + 93 * k), PointF(ox + 106 * k, oy + 163 * k),
+				PointF(ox + 156 * k, oy + 128 * k)};
 		g.FillPolygon(&ink, tri, 3);
 		break;
 	}

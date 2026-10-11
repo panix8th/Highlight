@@ -99,7 +99,7 @@ Copy-Item (Join-Path $Root "third_party\imgui\LICENSE.txt") (Join-Path $lic "img
 Highlight bundles parts of OBS Studio $((Get-Item (Join-Path $obsBin 'obs.dll')).VersionInfo.ProductVersion)
 (libobs and plugins, GPL-2.0-or-later, https://github.com/obsproject/obs-studio)
 and FFmpeg (GPL build from obs-deps, https://github.com/obsproject/obs-deps).
-Source for Highlight: https://github.com/panix8th/clippingpanix
+Source for Highlight: https://github.com/panix8th/Highlight
 "@ | Set-Content -Encoding utf8 (Join-Path $lic "THIRD-PARTY.txt")
 Copy-Item (Join-Path $Root "README.md") $app -ErrorAction SilentlyContinue
 

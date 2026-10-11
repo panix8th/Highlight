@@ -9,7 +9,7 @@ built unsigned, exactly as before.
 ## 1. Apply (once, by the repository owner)
 
 1. Go to <https://signpath.org> → **Apply** and apply with this repository
-   (`github.com/panix8th/clippingpanix`). Requirements they check: an OSI licence
+   (`github.com/panix8th/Highlight`). Requirements they check: an OSI licence
    (Highlight is GPL-2.0-or-later), a public repository, free downloads, releases
    built by CI from the repository, and a code signing policy on the project page.
    The policy is already in the README ("Code signing policy").

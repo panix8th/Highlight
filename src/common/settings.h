@@ -115,6 +115,8 @@ struct OverlaySettings {
 	bool sound = true;
 	int sound_volume = 60;
 	bool rec_indicator = false; /* off by default: keeps the screen clean */
+	bool check_updates = true;  /* ask GitHub for a newer release when the window opens */
+	std::string skip_version;   /* release the user chose to skip, e.g. "0.1.4" */
 };
 
 struct ShareSettings {

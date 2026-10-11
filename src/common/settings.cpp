@@ -214,7 +214,9 @@ static json to_json(const Settings &s)
 			{"toast_seconds", o.toast_seconds},
 			{"sound", o.sound},
 			{"sound_volume", o.sound_volume},
-			{"rec_indicator", o.rec_indicator}};
+			{"rec_indicator", o.rec_indicator},
+			{"check_updates", o.check_updates},
+			{"skip_version", o.skip_version}};
 
 	const auto &sh = s.share;
 	j["share"] = {{"target", sh.target},
@@ -326,6 +328,8 @@ static void from_json(const json &j, Settings &s)
 		read(*it, "sound", o.sound);
 		read(*it, "sound_volume", o.sound_volume);
 		read(*it, "rec_indicator", o.rec_indicator);
+		read(*it, "check_updates", o.check_updates);
+		read(*it, "skip_version", o.skip_version);
 	}
 	if (auto it = j.find("share"); it != j.end() && it->is_object()) {
 		auto &sh = s.share;

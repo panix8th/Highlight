@@ -6,6 +6,7 @@
 
 #include "audio_out.h"
 #include "textures.h"
+#include "updater.h"
 #include "widgets.h"
 
 #include "../common/ipc.h"
@@ -96,6 +97,8 @@ private:
 	/* app_ui.cpp */
 	void poll_core();
 	void try_connect();
+	void update_tick();          /* starts the update check, reports manual results */
+	void draw_update_banner();
 	void restart_capture(); /* end a crashed/frozen capture process and start a new one */
 	void send(const hl::ipc::json &msg);
 	void draw_titlebar();
@@ -203,6 +206,11 @@ private:
 	};
 	std::unique_ptr<Editor> ed_;
 	Job trim_job_;
+
+	/* updates */
+	Updater updater_;
+	double update_check_at_ = -1; /* when to run the automatic check (seconds) */
+	Updater::State update_reported_ = Updater::State::Idle;
 
 	/* share */
 	bool share_open_ = false;

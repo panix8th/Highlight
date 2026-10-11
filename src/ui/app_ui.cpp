@@ -294,6 +294,11 @@ static std::string display_name(const std::string &stem, const std::string &game
 	}
 	if (n > 8 && stem.substr(n - 8) == "_session")
 		return "Session " + display_name(stem.substr(0, n - 8), game, mtime).substr(5);
+	if (n > 5 && stem.substr(n - 5) == "_shot") {
+		std::string base = display_name(stem.substr(0, n - 5), game, mtime);
+		if (base.rfind("Clip ", 0) == 0)
+			return "Screenshot " + base.substr(5);
+	}
 	(void)mtime;
 	return stem;
 }
@@ -460,10 +465,78 @@ void AppUI::draw_notice()
 /* ------------------------------------------------------------------ */
 /* frame                                                              */
 
+void AppUI::update_tick()
+{
+	const double now = now_seconds();
+	if (update_check_at_ < 0)
+		update_check_at_ = now + 4.0; /* after the window is up */
+	if (update_check_at_ > 0 && now >= update_check_at_) {
+		update_check_at_ = 0;
+		if (settings_.overlay.check_updates)
+			updater_.check(false);
+	}
+	/* results of "Check for updates now" */
+	const Updater::State st = updater_.state();
+	if (st != update_reported_) {
+		update_reported_ = st;
+		if (updater_.manual() && st == Updater::State::UpToDate)
+			notice("Highlight " HL_VERSION " is the latest version", false);
+		else if (st == Updater::State::Failed && (updater_.manual() || !updater_.info().version.empty()))
+			notice("Update check failed: " + updater_.error(), true);
+		else if (st == Updater::State::Launched)
+			close_requested_ = true; /* the installer takes over */
+	}
+}
+
+void AppUI::draw_update_banner()
+{
+	const Updater::State st = updater_.state();
+	if (st != Updater::State::Available && st != Updater::State::Downloading)
+		return;
+	const UpdateInfo info = updater_.info();
+	if (st == Updater::State::Available && !updater_.manual() && info.version == settings_.overlay.skip_version)
+		return;
+	const float w = ImGui::GetContentRegionAvail().x;
+	begin_card("##update", w, true);
+	text(fonts.h2, col::text, "Highlight %s is available", info.version.c_str());
+	if (st == Updater::State::Downloading) {
+		text_wrapped(fonts.caption, col::muted, w - px(40), "Downloading the installer… %d%%",
+			     (int)(updater_.progress() * 100));
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		const float bw = std::min(w - px(40), px(420));
+		dl->AddRectFilled(p, ImVec2(p.x + bw, p.y + px(6)), col::bg0, px(3));
+		dl->AddRectFilled(p, ImVec2(p.x + bw * updater_.progress(), p.y + px(6)), col::accent, px(3));
+		ImGui::Dummy(ImVec2(bw, px(8)));
+	} else {
+		const bool installed = Updater::installed_copy() && !info.setup_url.empty();
+		text_wrapped(fonts.caption, col::muted, w - px(40),
+			     installed ? "You have %s. Update now downloads the installer and restarts Highlight. Your clips "
+					 "and settings stay as they are."
+				       : "You have %s. Download the new version from GitHub. Your clips and settings stay as "
+					 "they are.",
+			     HL_VERSION);
+		if (primary_button(installed ? "UPDATE NOW##upd" : "DOWNLOAD##upd", ImVec2(px(180), px(44))))
+			updater_.install(info);
+		ImGui::SameLine();
+		if (secondary_button("What's new##updnotes", ImVec2(0, px(44))))
+			ShellExecuteW(nullptr, L"open", hl::widen(info.page_url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		ImGui::SameLine();
+		if (secondary_button("Skip this version##updskip", ImVec2(0, px(44)))) {
+			settings_.overlay.skip_version = info.version;
+			mark_settings_dirty();
+			updater_.dismiss();
+		}
+	}
+	end_card();
+	ImGui::Dummy(ImVec2(0, px(4)));
+}
+
 void AppUI::frame()
 {
 	poll_core();
 	try_connect();
+	update_tick();
 	flush_settings(false);
 	poll_hotkey_capture();
 	if (rescan_.exchange(false))
@@ -508,6 +581,7 @@ void AppUI::frame()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, editor ? ImVec2(px(24), px(16)) : ImVec2(px(32), px(28)));
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(px(10), px(14)));
 	ImGui::BeginChild("##content", ImVec2(0, 0), ImGuiChildFlags_AlwaysUseWindowPadding);
+	draw_update_banner();
 	draw_banner();
 	switch (page_) {
 	case Page::Library:

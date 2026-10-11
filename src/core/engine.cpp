@@ -13,9 +13,11 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <thread>
+#include <vector>
 
 namespace hl {
 
@@ -418,8 +420,28 @@ bool Engine::build_capture(std::string *err)
 		signal_handler_connect(sh, "hooked", hooked_cb, this);
 		signal_handler_connect(sh, "unhooked", unhooked_cb, this);
 	} else {
+		/* name clips after the captured app, not "Window" */
+		std::string name = c.source == "display" ? "Desktop" : "Window";
+		if (c.source == "window") {
+			/* OBS window spec "title:class:exe"; ':' inside a part is written as "#3A" */
+			std::vector<std::string> parts;
+			size_t start = 0;
+			for (size_t i = 0; i <= c.window.size(); i++)
+				if (i == c.window.size() || c.window[i] == ':') {
+					std::string part = c.window.substr(start, i - start);
+					for (size_t k; (k = part.find("#3A")) != std::string::npos;)
+						part.replace(k, 3, ":");
+					parts.push_back(part);
+					start = i + 1;
+				}
+			if (parts.size() == 3 && !(parts[0].empty() && parts[2].empty())) {
+				std::string n = game_display_name(parts[2], parts[0]);
+				if (!n.empty())
+					name = n;
+			}
+		}
 		std::lock_guard lock(game_mutex_);
-		game_ = c.source == "display" ? "Desktop" : "Window";
+		game_ = name;
 	}
 	return true;
 }
@@ -797,6 +819,7 @@ std::string Engine::game() const
 
 void Engine::on_hooked(const char *title, const char *cls, const char *exe)
 {
+	game_hooked_ = true;
 	std::string name = game_display_name(exe ? exe : "", title ? title : "");
 	std::string spec = window_spec(title ? title : "", cls ? cls : "", exe ? exe : "");
 	{
@@ -818,6 +841,7 @@ void Engine::on_hooked(const char *title, const char *cls, const char *exe)
 
 void Engine::on_unhooked()
 {
+	game_hooked_ = false;
 	HL_INFO("Game closed");
 	if (events_.game_unhooked)
 		events_.game_unhooked();
@@ -912,11 +936,83 @@ void Engine::screenshot()
 	/* make_path() reads the game name under game_mutex_: build the path before
 	 * taking the lock (locking it twice on one thread aborts the process). */
 	std::string path = make_path("_shot", "png");
+	/* Game capture with no game hooked has a black canvas: take the screen instead. */
+	if (settings_.clipping.source == "game" && !game_hooked_) {
+		save_screen_grab(path);
+		return;
+	}
 	{
 		std::lock_guard lock(game_mutex_);
 		pending_screenshot_path_ = path;
 	}
 	screenshot_requested_ = true;
+}
+
+/* Plain GDI copy of the monitor under the mouse: works for the desktop and
+ * windowed apps, which is all a black canvas can mean. */
+static bool grab_screen(std::vector<uint8_t> &px, uint32_t &w, uint32_t &h)
+{
+	POINT pt = {};
+	GetCursorPos(&pt);
+	MONITORINFO mi = {sizeof(mi)};
+	if (!GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTOPRIMARY), &mi))
+		return false;
+	const int x = mi.rcMonitor.left, y = mi.rcMonitor.top;
+	w = (uint32_t)(mi.rcMonitor.right - x);
+	h = (uint32_t)(mi.rcMonitor.bottom - y);
+	if (!w || !h)
+		return false;
+	HDC screen = GetDC(nullptr);
+	HDC mem = CreateCompatibleDC(screen);
+	BITMAPINFO bi = {};
+	bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bi.bmiHeader.biWidth = (LONG)w;
+	bi.bmiHeader.biHeight = -(LONG)h;
+	bi.bmiHeader.biPlanes = 1;
+	bi.bmiHeader.biBitCount = 32;
+	bi.bmiHeader.biCompression = BI_RGB;
+	void *bits = nullptr;
+	HBITMAP dib = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+	bool ok = false;
+	if (dib && bits) {
+		HGDIOBJ old = SelectObject(mem, dib);
+		ok = BitBlt(mem, 0, 0, (int)w, (int)h, screen, x, y, SRCCOPY | CAPTUREBLT) != 0;
+		if (ok) {
+			px.assign((const uint8_t *)bits, (const uint8_t *)bits + (size_t)w * h * 4);
+			for (size_t i = 3; i < px.size(); i += 4)
+				px[i] = 255;
+		}
+		SelectObject(mem, old);
+	}
+	if (dib)
+		DeleteObject(dib);
+	DeleteDC(mem);
+	ReleaseDC(nullptr, screen);
+	return ok;
+}
+
+/* True when a frame has no picture at all (sampled). */
+static bool is_black(const std::vector<uint8_t> &px)
+{
+	const size_t step = std::max<size_t>(4, (px.size() / 4 / 4096) * 4);
+	for (size_t i = 0; i + 2 < px.size(); i += step)
+		if (px[i] > 6 || px[i + 1] > 6 || px[i + 2] > 6)
+			return false;
+	return true;
+}
+
+void Engine::save_screen_grab(const std::string &path)
+{
+	if (shot_thread_.joinable())
+		shot_thread_.join();
+	shot_thread_ = std::thread([this, path]() {
+		std::vector<uint8_t> px;
+		uint32_t w = 0, h = 0;
+		bool ok = grab_screen(px, w, h) && write_image(widen(path), px.data(), (int)w, (int)h, (int)w * 4, "png");
+		HL_INFO("Screenshot (screen) %s: %s", ok ? "saved" : "failed", path.c_str());
+		if (events_.screenshot_done)
+			events_.screenshot_done(ok, path);
+	});
 }
 
 void Engine::on_rendered()
@@ -947,7 +1043,18 @@ void Engine::on_rendered()
 			}
 			if (shot_thread_.joinable())
 				shot_thread_.join();
-			shot_thread_ = std::thread([this, px = std::move(px), w, h, path]() {
+			const bool black = is_black(px);
+			shot_thread_ = std::thread([this, px = std::move(px), w = w, h = h, path, black]() mutable {
+				if (black) {
+					/* nothing on the canvas (capture not showing anything): take the screen */
+					uint32_t sw = 0, sh = 0;
+					std::vector<uint8_t> screen;
+					if (grab_screen(screen, sw, sh)) {
+						px = std::move(screen);
+						w = sw;
+						h = sh;
+					}
+				}
 				bool ok = write_image(widen(path), px.data(), (int)w, (int)h, (int)w * 4, "png");
 				HL_INFO("Screenshot %s: %s", ok ? "saved" : "failed", path.c_str());
 				if (events_.screenshot_done)

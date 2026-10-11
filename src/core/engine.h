@@ -126,6 +126,9 @@ private:
 	bool rendered_cb_ = false;
 	std::string pending_screenshot_path_;
 	std::thread shot_thread_;
+	std::atomic<bool> game_hooked_{false};
+
+	void save_screen_grab(const std::string &path); /* fallback when the canvas has no picture */
 };
 
 } // namespace hl

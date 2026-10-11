@@ -9,8 +9,8 @@
 A lightweight game clipping app for Windows, built on the OBS Studio capture engine.<br>
 It holds the last minute (or five) of your game and saves it straight to your PC when you press a key. Nothing is uploaded.
 
-[![Download](https://img.shields.io/github/v/release/panix8th/clippingpanix?label=Download&style=for-the-badge&color=ff5a1f)](https://github.com/panix8th/clippingpanix/releases/latest)
-[![Build](https://img.shields.io/github/actions/workflow/status/panix8th/clippingpanix/build.yml?branch=main&style=for-the-badge&label=Build)](https://github.com/panix8th/clippingpanix/actions/workflows/build.yml)
+[![Download](https://img.shields.io/github/v/release/panix8th/Highlight?label=Download&style=for-the-badge&color=ff5a1f)](https://github.com/panix8th/Highlight/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/panix8th/Highlight/build.yml?branch=main&style=for-the-badge&label=Build)](https://github.com/panix8th/Highlight/actions/workflows/build.yml)
 [![License: GPL v2+](https://img.shields.io/badge/License-GPL%20v2%2B-555?style=for-the-badge)](LICENSE)
 
 <img src="docs/screenshots/library.png" alt="Highlight clip library" width="880">
@@ -19,11 +19,13 @@ It holds the last minute (or five) of your game and saves it straight to your PC
 
 ## Download
 
-**[⬇ Get the latest version from the Releases page](https://github.com/panix8th/clippingpanix/releases/latest)**
+**[⬇ Get the latest version from the Releases page](https://github.com/panix8th/Highlight/releases/latest)**
 
-1. Open **[Releases](https://github.com/panix8th/clippingpanix/releases/latest)** and download `Highlight-<version>-windows-x64.zip` from **Assets**.
-2. Unzip it anywhere, for example `C:\Games\Highlight`. There is no installer: the folder is the app.
-3. Run **`Highlight.exe`**. It sits in the tray and starts recording when a game starts.
+1. Open **[Releases](https://github.com/panix8th/Highlight/releases/latest)** and download from **Assets**:
+   - **`Highlight-<version>-setup.exe`**: the installer (recommended). No admin rights needed. It adds a Start menu entry, and you uninstall it from Windows Settings → Apps.
+   - **`Highlight-<version>-windows-x64.zip`**: the portable version. Unzip it anywhere and run **`Highlight.exe`**.
+2. Highlight sits in the tray and starts recording when a game starts.
+3. When a new version is out, the window offers to update (you can turn that off in Settings).
 
 Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
 
@@ -36,12 +38,12 @@ Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
 <details>
 <summary>Want the newest build instead of a release?</summary>
 
-Every push to this repository is built on GitHub Actions. Open the **[Actions](https://github.com/panix8th/clippingpanix/actions/workflows/build.yml)** tab, pick the latest green run, and download the **Highlight-windows-x64** artifact (you need to be signed in to GitHub).
+Every push to this repository is built on GitHub Actions. Open the **[Actions](https://github.com/panix8th/Highlight/actions/workflows/build.yml)** tab, pick the latest green run, and download the **Highlight-windows-x64** artifact (you need to be signed in to GitHub).
 </details>
 
 ## The in-game banner
 
-<img src="docs/screenshots/banner.gif" alt="The banner animating while a clip is saved, then showing Clip saved" width="620">
+<img src="docs/screenshots/banner.gif" alt="The banner animating over VALORANT while a clip is saved, then showing Clip saved" width="760">
 
 When you press the clip key, a small banner slides in at the **top left** of your screen:
 
@@ -55,24 +57,20 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 
 ## Screenshots
 
-> The screenshots use sample clips and example values.
+> Real gameplay: SuperTuxKart and OpenArena clips recorded for this page, and a VALORANT screenshot by the author. The voice on the sample clips' microphone track is text-to-speech.
 
 <table>
 <tr>
-<td width="50%"><img src="docs/screenshots/editor.png" alt="Clip editor"><br><b>Editor:</b> trim, preview, per-track audio, bookmarks</td>
+<td width="50%"><img src="docs/screenshots/editor.png" alt="Clip editor"><br><b>Editor:</b> trim, preview, a volume slider per audio track, bookmarks</td>
 <td width="50%"><img src="docs/screenshots/share.png" alt="Share dialog"><br><b>Share:</b> fit a clip under Discord's limit without visible loss</td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/share-done.png" alt="Share copy ready"><br><b>Share done:</b> the file is on your clipboard, so just press Ctrl+V</td>
 <td><img src="docs/screenshots/clipping.png" alt="Clipping and hotkey settings"><br><b>Clipping & hotkeys:</b> clip length, post-roll, keys, capture source</td>
-</tr>
-<tr>
 <td><img src="docs/screenshots/video.png" alt="Video quality settings"><br><b>Video quality:</b> presets, resolution, fps, NVENC HEVC/AV1/H.264</td>
-<td><img src="docs/screenshots/audio.png" alt="Audio settings"><br><b>Audio:</b> game, mic, Discord and other apps on separate tracks</td>
 </tr>
 <tr>
-<td><img src="docs/screenshots/overlay.png" alt="Overlay and alert settings"><br><b>Overlay & alerts:</b> banner corner and duration, sounds, REC indicator</td>
-<td></td>
+<td><img src="docs/screenshots/audio.png" alt="Audio settings"><br><b>Audio:</b> game, mic, Discord and other apps on separate tracks</td>
+<td><img src="docs/screenshots/overlay.png" alt="Overlay and alert settings"><br><b>Overlay & alerts:</b> banner, sounds, updates, restart capture</td>
 </tr>
 </table>
 
@@ -81,9 +79,10 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 **Clipping**
 - Rolling buffer of the last 15 s to 5 min (or any custom length), plus optional "keep recording after the press" post-roll.
 - Separate hotkeys for a normal clip (F8), a long clip (Shift+F8), a quick clip (Alt+F8), and up to four extra save keys with their own lengths.
-- Bookmarks (F9) that show up as markers on the clip timeline, screenshots (F10), full-session recording (Ctrl+F9), pause/resume (Ctrl+Shift+F8).
+- Bookmarks (F9) that show up as markers on the clip timeline, screenshots (F10, of the game or the screen when no game runs), full-session recording (Ctrl+F9), pause/resume (Ctrl+Shift+F8).
 - Game capture with auto-detection (starts when a game runs, stops on the desktop), or whole-screen or single-window capture.
 - Animated in-game banner and sound when a clip is saved, plus a tray icon with every action.
+- If the background process ever stops, **Restart capture** in the window brings it back.
 
 **Quality**
 - Presets from Lightweight (1080p30) to Ultra (native, 120 fps).
@@ -96,8 +95,9 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 
 **Library & editor**
 - Thumbnail grid grouped by day, with filters per game, favourites, sessions, screenshots, search and sort.
-- Editor with preview playback, frame stepping, trim handles, per-track mute, waveforms and bookmark markers.
-- Lossless trim (instant, no quality loss) or frame-exact GPU re-encode. Save a copy or replace the original.
+- Editor with preview playback, frame stepping, trim handles, waveforms and bookmark markers.
+- **Volume per audio track** (0–200 %) and mute: turn the game down, your mic up, Discord off. The preview plays the new balance.
+- Lossless trim (instant, no quality loss) or frame-exact GPU re-encode. Save a copy or replace the original. When you change volumes, a lossless copy keeps the video untouched and re-encodes only the audio, with a new mixed track first.
 
 **Share copies (for Discord and friends)**
 - Only made when you share. Your original clip always stays full size and full quality.
@@ -125,21 +125,22 @@ Highlight\
 
 Settings: `%APPDATA%\Highlight\settings.json` · Logs: `%LOCALAPPDATA%\Highlight\logs` · Clips: `Videos\Highlight` by default.
 
-To uninstall, quit Highlight from the tray and delete the folder. Turn off "Start with Windows" in Clipping & hotkeys first so Windows forgets about it.
+To uninstall the installed version, use Windows Settings → Apps → Highlight. For the portable version, quit Highlight from the tray and delete the folder (turn off "Start with Windows" in Clipping & hotkeys first). Your clips and settings stay either way.
 
 ## Building it yourself
 
-GitHub Actions does all of this for you (`.github/workflows/build.yml`), and pushing a `v*` tag publishes a release. To build on your own PC:
+GitHub Actions does all of this for you (`.github/workflows/build.yml`): it builds, runs the clip-saving test, packages the zip and the installer, and publishes a release for a `v*` tag or a commit to `main` whose message contains `[release]`. To build on your own PC:
 
 1. Install Visual Studio 2022 (Desktop development with C++), CMake 3.24+, Ninja and Git.
 2. Open a **Developer PowerShell for VS 2022** in the repo and run `./scripts/fetch-deps.ps1`. It downloads the official OBS Studio 32.2.2 runtime, the libobs headers from the same tag and OBS's prebuilt FFmpeg (obs-deps). Then it generates an import library for `obs.dll`.
 3. `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release`
 4. `cmake --build build`
 5. `./scripts/package.ps1` assembles `dist\Highlight` and the zip.
+6. Optional: install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and run `iscc /DAppVersion=<version> installer\highlight.iss` for the installer.
 
 ## Notes and limits
 
-- Highlight is new (v0.1). If something doesn't work, please open an issue and attach the newest log from `%LOCALAPPDATA%\Highlight\logs`.
+- Highlight is new (v0.1). If something doesn't work, please open an issue and attach the newest log from `%LOCALAPPDATA%\Highlight\logs` (and a `crash-*.dmp` file if there is one).
 - The banner shows over borderless and windowed games. Exclusive-fullscreen games hide it, but the sound still plays.
 - Game capture uses OBS's signed capture hook, which most anti-cheat systems accept. If a game blocks it, switch to whole-screen capture.
 - Automatic clipping of kills and wins isn't there yet. It needs game-specific integrations.
@@ -154,7 +155,7 @@ Once active: free code signing provided by [SignPath.io](https://about.signpath.
 - Approvers: [panix8th](https://github.com/panix8th)
 - Only programs built by GitHub Actions from this repository's source are signed (see `.github/workflows/build.yml`). Bundled OBS Studio and FFmpeg files keep their original signatures.
 
-**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only network access is the update check: when the window opens, Highlight asks GitHub (`api.github.com`) for the latest release. It sends no clips, settings or usage data, and you can turn it off in Settings → Overlay & alerts.
 
 ## Licence
 

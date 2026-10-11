@@ -335,10 +335,16 @@ void AppUI::clip_menu()
 					found = true;
 				}
 		}
+		/* icon and label at fixed offsets: padding the label with spaces depends on the font and DPI */
 		auto entry = [&](const char *label, Icon icon) {
-			ImVec2 p = ImGui::GetCursorScreenPos();
-			bool r = ImGui::Selectable((std::string("      ") + label).c_str(), false, 0, ImVec2(px(220), px(36)));
-			draw_icon(ImGui::GetWindowDrawList(), icon, ImVec2(p.x + px(14), p.y + px(18)), px(15), col::muted);
+			const ImVec2 p = ImGui::GetCursorScreenPos();
+			const float w = px(240), h = px(36);
+			bool r = ImGui::Selectable((std::string("##") + label).c_str(), false, 0, ImVec2(w, h));
+			const bool hov = ImGui::IsItemHovered();
+			ImDrawList *dl = ImGui::GetWindowDrawList();
+			draw_icon(dl, icon, ImVec2(p.x + px(18), p.y + h * 0.5f), px(16), hov ? col::text : col::muted);
+			dl->AddText(fonts.body, fonts.body->FontSize, ImVec2(p.x + px(40), p.y + (h - fonts.body->FontSize) * 0.5f),
+				    col::text, label);
 			return r;
 		};
 		if (found) {
