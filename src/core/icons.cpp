@@ -1,5 +1,6 @@
 #include "icons.h"
 #include "gdiplus_include.h"
+#include "logo_draw.h"
 
 namespace hl {
 
@@ -27,7 +28,7 @@ HICON make_icon(IconState state, int size)
 	const Color bg = lit ? Color(255, 0xFF, 0x5A, 0x1F) : Color(255, 0x3A, 0x3F, 0x48);
 	const Color fg = lit ? Color(255, 0x0B, 0x0C, 0x0E) : Color(255, 0xC9, 0xCD, 0xD3);
 
-	/* The artwork is drawn on a 40-unit grid, like the logo. */
+	/* The tile and the status glyphs are drawn on a 40-unit grid. */
 	const REAL s = (REAL)size / 40.0f;
 	GraphicsPath box;
 	rounded_rect(box, 0, 0, (REAL)size, (REAL)size, 10 * s);
@@ -46,10 +47,7 @@ HICON make_icon(IconState state, int size)
 		g.FillRectangle(&fg_brush, 12 * s, 11 * s, 5.5f * s, 18 * s);
 		g.FillRectangle(&fg_brush, 22.5f * s, 11 * s, 5.5f * s, 18 * s);
 	} else {
-		g.FillRectangle(&fg_brush, 9 * s, 10 * s, 5 * s, 20 * s);
-		g.FillRectangle(&fg_brush, 26 * s, 10 * s, 5 * s, 20 * s);
-		PointF tri[] = {PointF(16.5f * s, 14.5f * s), PointF(16.5f * s, 25.5f * s), PointF(24.5f * s, 20 * s)};
-		g.FillPolygon(&fg_brush, tri, 3);
+		fill_logo_mark(g, fg_brush, size / 2.0f, size / 2.0f, size * logo_mark_fraction((float)size));
 		if (state == IconState::Recording) {
 			SolidBrush dot(Color(255, 0xEC, 0xED, 0xEF));
 			g.FillEllipse(&dot, 28 * s, 0.5f * s, 11 * s, 11 * s);

@@ -63,6 +63,8 @@ void setup_theme(float scale)
 	fonts.mono = load("JetBrainsMono-Medium.ttf", 13.0f);
 	fonts.mono_small = load("JetBrainsMono-Medium.ttf", 11.0f);
 	fonts.mono_bold = load("JetBrainsMono-Bold.ttf", 13.0f);
+	fonts.brand = load("Figtree-SemiBold.ttf", 19.0f);
+	fonts.brand_large = load("Figtree-SemiBold.ttf", 28.0f);
 	io.FontDefault = fonts.body;
 
 	ImGuiStyle &s = ImGui::GetStyle();

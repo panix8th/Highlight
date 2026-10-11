@@ -1,8 +1,9 @@
 <div align="center">
 
-<img src="assets/icons/highlight.png" width="96" alt="Highlight logo">
-
-# Highlight
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/highlight-logo-dark.svg">
+  <img src="assets/brand/highlight-logo-light.svg" height="76" alt="highlight">
+</picture>
 
 **Hit the key. Keep the moment.**
 

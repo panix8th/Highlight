@@ -1,5 +1,7 @@
 #include "widgets.h"
 
+#include "../common/logo.h"
+
 #include <imgui_internal.h>
 
 #include <cmath>
@@ -160,16 +162,39 @@ void draw_icon(ImDrawList *dl, Icon icon, ImVec2 c, float size, ImU32 color)
 		dl->AddCircleFilled(P(12, 12), 4 * u, color);
 		break;
 	case Icon::Logo: {
-		const float g = size / 40.0f;
-		ImVec2 o(c.x - size / 2, c.y - size / 2);
-		auto L = [&](float x, float y) { return ImVec2(o.x + x * g, o.y + y * g); };
-		dl->AddRectFilled(L(0, 0), L(40, 40), col::accent, 10 * g);
-		dl->AddRectFilled(L(9, 10), L(14, 30), col::ink, 1.5f * g);
-		dl->AddRectFilled(L(26, 10), L(31, 30), col::ink, 1.5f * g);
-		dl->AddTriangleFilled(L(16.5f, 14.5f), L(16.5f, 25.5f), L(24.5f, 20), col::ink);
+		/* the app icon: the mark (src/common/logo.h) on an orange rounded square */
+		const ImVec2 o(c.x - size / 2, c.y - size / 2);
+		dl->AddRectFilled(o, ImVec2(o.x + size, o.y + size), col::accent, size * 0.25f);
+		const float h = size * hl::logo_mark_fraction(size), s = h / hl::k_logo_h;
+		const float ox = c.x - hl::k_logo_w * s / 2, oy = c.y - h / 2;
+		ImVector<ImVec2> pts;
+		for (const auto &poly : hl::logo_mark()) {
+			pts.resize(0);
+			for (const hl::LogoPoint &q : poly)
+				pts.push_back(ImVec2(ox + q.x * s, oy + q.y * s));
+			dl->AddConcavePolyFilled(pts.Data, pts.Size, col::ink);
+		}
 		break;
 	}
 	}
+}
+
+float brand_lockup(ImDrawList *dl, ImVec2 pos, float icon_size, ImFont *font)
+{
+	draw_icon(dl, Icon::Logo, ImVec2(pos.x + icon_size / 2, pos.y + icon_size / 2), icon_size, col::accent);
+	const char *word = "highlight";
+	/* as in the logo artwork: the lowercase letters (x-height) are centred on the mark */
+	const ImFontGlyph *x = font->FindGlyph('x');
+	const float mid = x ? (x->Y0 + x->Y1) / 2 : font->FontSize / 2;
+	ImVec2 at(pos.x + icon_size * 1.45f, std::round(pos.y + icon_size / 2 - mid));
+	/* drawn letter by letter: the wordmark is set slightly tighter (-0.02 em) */
+	const float track = -0.02f * font->FontSize;
+	for (const char *ch = word; *ch; ch++) {
+		dl->AddText(font, font->FontSize, at, col::text, ch, ch + 1);
+		const ImFontGlyph *g = font->FindGlyph((ImWchar)*ch);
+		at.x += (g ? g->AdvanceX : 0) + (ch[1] ? track : 0);
+	}
+	return at.x;
 }
 
 /* ------------------------------------------------------------------ */

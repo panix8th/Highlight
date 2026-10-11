@@ -968,7 +968,16 @@ void AppUI::overlay_page()
 	end_card();
 
 	begin_card("##about", cols.col_w, true);
-	text(fonts.h2, col::text, "Highlight %s", HL_VERSION);
+	{
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float icon = px(40);
+		const float end = brand_lockup(dl, p, icon, fonts.brand_large);
+		const ImVec2 vs = measure(fonts.mono_small, "v" HL_VERSION);
+		dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(end + px(10), p.y + (icon - vs.y) / 2 + px(2)),
+			    col::muted, "v" HL_VERSION);
+		ImGui::Dummy(ImVec2(0, icon + px(4)));
+	}
 	text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
 		     "Open source under the GPL. Built on the OBS Studio capture engine and FFmpeg. "
 		     "Clips never leave your PC unless you share them.");

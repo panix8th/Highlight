@@ -45,6 +45,9 @@ enum class Icon {
 };
 
 void draw_icon(ImDrawList *dl, Icon icon, ImVec2 center, float size, ImU32 color);
+/* The app icon followed by the "highlight" wordmark (pos: the icon's top-left corner).
+ * Returns the x where the wordmark ends. */
+float brand_lockup(ImDrawList *dl, ImVec2 pos, float icon_size, ImFont *font);
 
 /* text */
 void text(ImFont *font, ImU32 color, const char *fmt, ...);

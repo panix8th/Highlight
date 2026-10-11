@@ -42,6 +42,8 @@ struct Fonts {
 	ImFont *mono = nullptr;     /* JetBrains Mono Medium 13 */
 	ImFont *mono_small = nullptr;
 	ImFont *mono_bold = nullptr;
+	ImFont *brand = nullptr;       /* Figtree SemiBold 19: the "highlight" wordmark */
+	ImFont *brand_large = nullptr; /* Figtree SemiBold 28 */
 };
 
 extern Fonts fonts;

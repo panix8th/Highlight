@@ -1,5 +1,6 @@
 #include "toast.h"
 #include "gdiplus_include.h"
+#include "logo_draw.h"
 
 #include "../common/paths.h"
 #include "../common/strings.h"
@@ -160,16 +161,8 @@ static void draw_card(Graphics &g, int w, int h, float s, const ToastContent &c,
 	}
 	case ToastKind::Info:
 	default: {
-		/* the Highlight logo, on the grid of assets/icons/highlight.png (256 px) */
-		const REAL k = 42 * s / 256.0f, ox = 16 * s, oy = 18 * s;
-		for (REAL x0 : {58.0f, 166.0f}) {
-			GraphicsPath bar;
-			rounded(bar, ox + x0 * k, oy + 64 * k, 32 * k, 128 * k, 16 * k);
-			g.FillPath(&ink, &bar);
-		}
-		PointF tri[] = {PointF(ox + 106 * k, oy + 93 * k), PointF(ox + 106 * k, oy + 163 * k),
-				PointF(ox + 156 * k, oy + 128 * k)};
-		g.FillPolygon(&ink, tri, 3);
+		/* the Highlight mark, as on the app icon */
+		fill_logo_mark(g, ink, cx, cy, 42 * s * logo_mark_fraction(42 * s));
 		break;
 	}
 	}

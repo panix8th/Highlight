@@ -633,9 +633,7 @@ void AppUI::draw_titlebar()
 	dl->AddRectFilled(o, ImVec2(o.x + vp->Size.x, o.y + h), col::bg0);
 	dl->AddLine(ImVec2(o.x, o.y + h - 1), ImVec2(o.x + vp->Size.x, o.y + h - 1), col::bg3, px(1));
 
-	draw_icon(dl, Icon::Logo, ImVec2(o.x + px(24), o.y + h / 2), px(20), col::accent);
-	dl->AddText(fonts.wordmark, fonts.wordmark->FontSize, ImVec2(o.x + px(44), o.y + (h - fonts.wordmark->FontSize) / 2),
-		    col::text, "HIGHLIGHT");
+	brand_lockup(dl, ImVec2(o.x + px(14), o.y + (h - px(20)) / 2), px(20), fonts.brand);
 
 	/* status line */
 	std::string status;
