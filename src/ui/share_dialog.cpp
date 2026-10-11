@@ -278,6 +278,8 @@ void AppUI::share_dialog()
 				share_job_.link.clear();
 				share_job_.upload_error.clear();
 				share_job_.key = key;
+				share_job_.host = cfg.host;
+				share_job_.bucket = cfg.bucket;
 				share_job_.source = e.clip.path;
 				share_job_.handled = false;
 			}
@@ -371,8 +373,9 @@ void AppUI::share_dialog()
 				if (secondary_button("Copy link##copylink", ImVec2(bw, px(48)), Icon::Share))
 					copy_link(share_job_.link);
 			} else if (upload_failed) {
-				if (secondary_button("Try again##reupload", ImVec2(bw, px(48)), Icon::Share)) {
-					start_upload(share_job_.result, share_job_.source, e.clip.name);
+				/* closes only when the upload started (another one may be running) */
+				if (secondary_button("Try again##reupload", ImVec2(bw, px(48)), Icon::Share) &&
+				    start_upload(share_job_.result, share_job_.source, e.clip.name)) {
 					share_job_.done = false;
 					ImGui::CloseCurrentPopup();
 					share_open_ = false;

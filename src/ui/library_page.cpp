@@ -412,6 +412,12 @@ void AppUI::clip_menu()
 				if (MoveFileExW(from.c_str(), to.c_str(), 0)) {
 					library_.rename(rename_path_, hl::narrow(to.wstring()));
 					library_.save();
+					/* an upload of this clip that is still running records its link under the new name */
+					for (Job *job : {&upload_job_, &share_job_}) {
+						std::lock_guard lock(job->mutex);
+						if (hl::to_lower(job->source) == hl::to_lower(rename_path_))
+							job->source = hl::narrow(to.wstring());
+					}
 					rescan_ = true;
 				} else {
 					notice("Could not rename (is the name taken or the file open?)", true);

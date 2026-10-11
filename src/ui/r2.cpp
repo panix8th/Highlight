@@ -116,6 +116,7 @@ struct Response {
 	DWORD error = 0;    /* WinHTTP error when status is 0 */
 	std::string body;   /* first 64 KB */
 	bool cancelled = false;
+	bool read_failed = false; /* the file could not be read while uploading */
 };
 
 /* The body comes from a file or from memory (or is empty). */
@@ -140,30 +141,42 @@ Response request(const std::wstring &host, INTERNET_PORT port, bool https, const
 						  WINHTTP_DEFAULT_ACCEPT_TYPES, https ? WINHTTP_FLAG_SECURE : 0)
 			     : nullptr;
 	const uint64_t total = file ? file_size : data ? data->size() : 0;
-	bool sent = req && WinHttpSendRequest(req, headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(),
-					      headers.empty() ? 0 : (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, (DWORD)total, 0);
+	const bool started = req && WinHttpSendRequest(req, headers.empty() ? WINHTTP_NO_ADDITIONAL_HEADERS : headers.c_str(),
+						       headers.empty() ? 0 : (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0,
+						       (DWORD)total, 0);
+	DWORD fail = started ? 0 : GetLastError();
+	bool sent = started;
 	if (sent && data && !data->empty()) {
 		DWORD wrote = 0;
 		sent = WinHttpWriteData(req, data->data(), (DWORD)data->size(), &wrote);
+		if (!sent)
+			fail = GetLastError();
 	} else if (sent && file) {
 		std::vector<char> buf(256 * 1024);
 		uint64_t done = 0;
 		while (sent && done < total) {
 			const size_t n = fread(buf.data(), 1, buf.size(), file);
 			if (n == 0) {
+				r.read_failed = true;
 				sent = false;
 				break;
 			}
 			DWORD wrote = 0;
 			sent = WinHttpWriteData(req, buf.data(), (DWORD)n, &wrote) && wrote == n;
+			if (!sent)
+				fail = GetLastError();
 			done += n;
-			if (progress && !progress((float)((double)done / (double)total))) {
+			/* once the whole body is out the object exists: read the answer, so a
+			 * late cancel does not leave an upload nobody knows about */
+			if (progress && !progress((float)((double)done / (double)total)) && done < total) {
 				r.cancelled = true;
 				sent = false;
 			}
 		}
 	}
-	if (sent && WinHttpReceiveResponse(req, nullptr)) {
+	/* Also after a failed write: Cloudflare may have refused the upload early (bad key,
+	 * no access) and closed the connection, and its answer says why. */
+	if (started && !r.cancelled && !r.read_failed && WinHttpReceiveResponse(req, nullptr)) {
 		DWORD code = 0, len = sizeof(code);
 		WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
 				    &code, &len, WINHTTP_NO_HEADER_INDEX);
@@ -177,7 +190,7 @@ Response request(const std::wstring &host, INTERNET_PORT port, bool https, const
 				r.body.append(buf, got);
 		}
 	} else if (!r.cancelled) {
-		r.error = GetLastError();
+		r.error = fail ? fail : GetLastError();
 	}
 	if (req)
 		WinHttpCloseHandle(req);
@@ -192,8 +205,9 @@ Response r2_request(const R2Config &c, const char *method, const std::string &ke
 {
 	const std::string path = "/" + uri_encode(c.bucket, false) + "/" + uri_encode(key, true);
 	std::wstring headers = sign(c, method, path);
+	/* no long Cache-Control: on a custom domain Cloudflare would keep serving a deleted clip */
 	if (!content_type.empty())
-		headers += hl::widen("Content-Type: " + content_type + "\r\nCache-Control: public, max-age=31536000\r\n");
+		headers += hl::widen("Content-Type: " + content_type + "\r\n");
 	/* the signed host keeps a ":port" (as the Host header does); the connection does not */
 	std::string host = c.host;
 	INTERNET_PORT port = g_plain_http_for_tests ? INTERNET_DEFAULT_HTTP_PORT : INTERNET_DEFAULT_HTTPS_PORT;
@@ -220,21 +234,33 @@ std::string describe(const Response &r, const R2Config &c)
 {
 	if (r.cancelled)
 		return "Cancelled";
+	if (r.read_failed)
+		return "The file could not be read while uploading. Was it moved or deleted?";
 	if (r.status == 0) {
 		switch (r.error) {
 		case ERROR_WINHTTP_NAME_NOT_RESOLVED:
-			return "Cloudflare R2 could not be found at " + c.host + ". Check the account ID.";
+			return "Cloudflare could not be reached. Check your internet connection.";
 		case ERROR_WINHTTP_TIMEOUT:
 			return "The connection to Cloudflare timed out. Try again.";
+		case ERROR_WINHTTP_CANNOT_CONNECT:
+			return "Could not connect to Cloudflare. Check your internet connection.";
+		case ERROR_WINHTTP_CONNECTION_ERROR:
+		case 10054: /* WSAECONNRESET */
+			/* Cloudflare also closes the connection when it refuses an upload part way
+			 * (a revoked token, no access); the Test button gets its reason */
+			return "The connection to Cloudflare broke off. Try again; if it keeps happening, press \"Test the "
+			       "connection\" in Settings > Share links to check the keys.";
 		default:
 			return "No connection to Cloudflare (error " + std::to_string(r.error) + ").";
 		}
 	}
 	const std::string code = xml_value(r.body, "Code");
 	if (code == "InvalidAccessKeyId" || code == "SignatureDoesNotMatch" || code == "Unauthorized")
-		return "Cloudflare did not accept the access key or secret. Check both in Settings > Share links.";
+		return "Cloudflare did not accept the access key or secret (or the account ID). Check them in Settings > "
+		       "Share links.";
 	if (code == "NoSuchBucket")
-		return "The bucket \"" + c.bucket + "\" does not exist in this account. Check its name.";
+		return "The bucket \"" + c.bucket + "\" does not exist in this account. Check its name. For a bucket in the "
+		       "EU, paste its S3 API address instead of the account ID.";
 	if (code == "AccessDenied")
 		return "This API token may not write to the bucket. Give it \"Object Read & Write\" for \"" + c.bucket + "\".";
 	if (code == "RequestTimeTooSkewed")
@@ -381,14 +407,17 @@ bool r2_upload(const R2Config &c, const std::string &file, const std::string &ke
 	fclose(f);
 	if (r.status != 200)
 		return fail(describe(r, c));
-	HL_INFO("Uploaded %s (%llu bytes) as %s", file.c_str(), (unsigned long long)size, key.c_str());
+	/* not the object name: its random part is what keeps the link private */
+	HL_INFO("Uploaded %s (%llu bytes)", hl::narrow(fs::path(hl::widen(file)).filename().wstring()).c_str(),
+		(unsigned long long)size);
 	return true;
 }
 
 bool r2_delete(const R2Config &c, const std::string &key, std::string *err)
 {
 	Response r = r2_request(c, "DELETE", key, nullptr, 0, nullptr, "", nullptr);
-	if (r.status == 204 || r.status == 200 || r.status == 404)
+	/* 204 also for an object that is already gone; a missing bucket is an error */
+	if (r.status == 204 || r.status == 200 || (r.status == 404 && xml_value(r.body, "Code") != "NoSuchBucket"))
 		return true;
 	if (err)
 		*err = describe(r, c);

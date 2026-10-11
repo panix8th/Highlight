@@ -1017,6 +1017,7 @@ void AppUI::links_page()
 			mark_settings_dirty();
 			std::lock_guard lock(links_test_job_.mutex);
 			links_test_job_.done = false; /* an old test result no longer applies */
+			links_test_gen_++;            /* nor does one still running */
 		}
 	};
 	field("Account ID", "##r2acc", sh.r2_account, "32 characters, or the S3 API address");
@@ -1033,17 +1034,21 @@ void AppUI::links_page()
 		const R2Config cfg = R2Config::from(sh);
 		links_test_job_.join();
 		links_test_job_.running = true;
+		int gen;
 		{
 			std::lock_guard lock(links_test_job_.mutex);
 			links_test_job_.done = false;
+			gen = ++links_test_gen_;
 		}
-		links_test_job_.thread = std::thread([this, cfg]() {
+		links_test_job_.thread = std::thread([this, cfg, gen]() {
 			std::string err;
 			const bool ok = r2_test(cfg, &err);
 			std::lock_guard lock(links_test_job_.mutex);
-			links_test_job_.ok = ok;
-			links_test_job_.error = err;
-			links_test_job_.done = true;
+			if (gen == links_test_gen_) { /* the fields have not changed since */
+				links_test_job_.ok = ok;
+				links_test_job_.error = err;
+				links_test_job_.done = true;
+			}
 			links_test_job_.running = false;
 		});
 	}
@@ -1075,7 +1080,8 @@ void AppUI::links_page()
 		"(https://pub-....r2.dev) as the public bucket address.",
 		"Back in R2: Manage API tokens > Create API token. Permission: Object Read & Write, only for this bucket. "
 		"Paste the Access Key ID and the Secret Access Key here.",
-		"Copy the Account ID from the R2 overview page (or paste the whole S3 API address), then press Test.",
+		"Copy the Account ID from the R2 overview page, then press Test. For a bucket in the EU, paste the bucket's "
+		"S3 API address (https://….eu.r2.cloudflarestorage.com) instead.",
 	};
 	const float wrap = ImGui::GetContentRegionAvail().x - px(28);
 	for (int i = 0; i < 5; i++) {
@@ -1113,6 +1119,14 @@ void AppUI::links_page()
 	text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
 		     "Upload or copy a link from a clip's ··· menu, or from Share. \"Delete link\" in that menu removes "
 		     "it from your storage. Deleting a clip here keeps its link working.");
+	if (const size_t older = library_.older_uploads().size()) {
+		text_wrapped(fonts.body, col::text, ImGui::GetContentRegionAvail().x,
+			     "%d older %s still online: from clips you deleted, or uploaded again.", (int)older,
+			     older == 1 ? "link is" : "links are");
+		if (secondary_button(upload_job_.running ? "Busy…##delolder" : "Delete older links##delolder",
+				     ImVec2(-1, px(44)), Icon::Trash, !upload_job_.running))
+			start_delete_older();
+	}
 	end_card();
 	ImGui::EndGroup();
 }

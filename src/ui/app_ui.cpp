@@ -45,6 +45,10 @@ bool AppUI::init(HWND hwnd)
 
 void AppUI::shutdown()
 {
+	/* uploads stop at their next chunk, but a network call can block for a while:
+	 * do not leave a frozen window on screen meanwhile */
+	if (hwnd_)
+		ShowWindow(hwnd_, SW_HIDE);
 	flush_settings(true);
 	share_job_.cancel = true;
 	trim_job_.cancel = true;

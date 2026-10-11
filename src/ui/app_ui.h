@@ -75,9 +75,10 @@ struct Job {
 	std::string error;
 	int64_t bytes = 0;
 	/* share links */
-	std::atomic<int> phase{0}; /* share: 0 encoding, 1 uploading; upload job: 0 upload, 2 delete */
+	std::atomic<int> phase{0}; /* share: 0 encoding, 1 uploading; upload job: 0 upload, 2 delete, 3 delete older */
 	std::string source;        /* clip the upload belongs to */
 	std::string key, link;     /* object name and public link once uploaded */
+	std::string host, bucket;  /* where it went */
 	std::string upload_error;  /* share copy made, upload failed */
 	bool handled = true;       /* the frame loop has picked up the result */
 
@@ -152,8 +153,10 @@ private:
 
 	/* share links (links.cpp; the R2 client is r2.cpp) */
 	void links_page(); /* settings_pages.cpp */
-	void start_upload(const std::string &file, const std::string &clip_path, const std::string &name);
+	bool start_upload(const std::string &file, const std::string &clip_path, const std::string &name);
 	void start_unlink(const std::string &clip_path);
+	void start_delete_older(); /* links of deleted clips and replaced uploads */
+	void record_upload(const std::string &clip_path, const hl::Upload &u);
 	void finish_jobs(); /* picks up finished uploads: saves the link, copies it */
 	void draw_upload_bar();
 	void copy_link(const std::string &link);
@@ -236,6 +239,7 @@ private:
 	Job upload_job_;
 	std::string upload_name_;
 	Job links_test_job_;
+	int links_test_gen_ = 0; /* settings edits make a running test's result stale */
 
 	/* settings pages */
 	hl::Hotkey *capturing_ = nullptr;

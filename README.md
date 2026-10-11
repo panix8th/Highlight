@@ -124,7 +124,9 @@ Share links need a free Cloudflare account; the clips go to storage that belongs
 2. **Create a bucket**, for example `highlight-clips`.
 3. In the bucket: **Settings → Public access → R2.dev subdomain → Allow**. Copy the address it shows (`https://pub-….r2.dev`).
 4. Back in R2: **Manage API tokens → Create API token**, permission **Object Read & Write**, limited to that bucket. Copy the **Access Key ID** and the **Secret Access Key**.
-5. In Highlight, **Settings → Share links**: paste the Account ID (from the R2 overview page, or the whole S3 API address), the two keys, the bucket name and the public address, then press **Test the connection**.
+5. In Highlight, **Settings → Share links**: paste the Account ID (from the R2 overview page), the two keys, the bucket name and the public address, then press **Test the connection**. For a bucket in the EU jurisdiction, paste the bucket's S3 API address (`https://….eu.r2.cloudflarestorage.com`) instead of the Account ID.
+
+MKV and MOV clips are uploaded as MP4 (same video and audio, no re-encode) so their links play in the browser and in Discord.
 
 The secret key is stored encrypted for your Windows user (DPAPI) in `%APPDATA%\Highlight\settings.json`.
 
