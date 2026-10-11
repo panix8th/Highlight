@@ -1,6 +1,9 @@
 #include "app_ui.h"
+#include "r2.h"
 
 #include "../common/strings.h"
+
+#include <shellapi.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -216,8 +219,26 @@ void AppUI::share_dialog()
 				    right_w - px(36));
 			ImGui::Dummy(ImVec2(right_w, ch));
 		}
-		if (toggle_row("Copy to clipboard when done", "Paste straight into Discord with Ctrl+V.", &sh.copy_to_clipboard))
+		const bool links_ready = R2Config::from(sh).missing().empty();
+		if (links_ready && toggle_row("Upload and copy a link",
+					      "To your Cloudflare storage. The link plays in any browser and right in Discord.",
+					      &sh.upload_link))
 			mark_settings_dirty();
+		if (!(links_ready && sh.upload_link) &&
+		    toggle_row("Copy to clipboard when done", "Paste straight into Discord with Ctrl+V.", &sh.copy_to_clipboard))
+			mark_settings_dirty();
+		if (!links_ready) {
+			ImGui::PushStyleColor(ImGuiCol_Text, col::accent_text);
+			ImGui::PushFont(fonts.small_semibold);
+			if (ImGui::Selectable("Share a link instead of a file: set up share links##setuplinks", false, 0,
+					      ImVec2(right_w, 0))) {
+				ImGui::CloseCurrentPopup();
+				share_open_ = false;
+				page_ = Page::Links; /* the editor stays open under Clips */
+			}
+			ImGui::PopFont();
+			ImGui::PopStyleColor();
+		}
 		bool cleanup = settings_.storage.share_cleanup_days > 0;
 		if (toggle_row("Delete share copies after 7 days", "They live in Clips\\_Share. Originals are never deleted.",
 			       &cleanup)) {
@@ -241,34 +262,50 @@ void AppUI::share_dialog()
 				out = fs::path(hl::widen(dir)) / hl::widen(stem + "_share (" + std::to_string(i) + ").mp4");
 			req.output = hl::narrow(out.wstring());
 
+			const bool upload = links_ready && sh.upload_link;
+			const R2Config cfg = R2Config::from(sh);
+			const std::string key = upload ? r2_new_key(e.clip.name, req.output) : std::string();
 			share_job_.join();
 			share_job_.progress = 0;
 			share_job_.cancel = false;
+			share_job_.phase = 0;
 			share_job_.running = true;
 			{
 				std::lock_guard lock(share_job_.mutex);
 				share_job_.done = false;
 				share_job_.ok = false;
 				share_job_.error.clear();
+				share_job_.link.clear();
+				share_job_.upload_error.clear();
+				share_job_.key = key;
+				share_job_.source = e.clip.path;
+				share_job_.handled = false;
 			}
-			const bool clip = sh.copy_to_clipboard;
-			share_job_.thread = std::thread([this, req, plan, clip]() {
-				std::string err;
+			const bool clip = sh.copy_to_clipboard && !upload;
+			share_job_.thread = std::thread([this, req, plan, clip, upload, cfg, key]() {
+				std::string err, upload_err, link;
 				int64_t bytes = 0;
-				bool ok = hl::media::run_share(
-					req, plan,
-					[this](float p) {
-						share_job_.progress = p;
-						return !share_job_.cancel.load();
-					},
-					&err, &bytes);
+				auto progress = [this](float p) {
+					share_job_.progress = p;
+					return !share_job_.cancel.load();
+				};
+				bool ok = hl::media::run_share(req, plan, progress, &err, &bytes);
 				if (ok && clip)
 					hl::media::copy_file_to_clipboard(req.output);
+				if (ok && upload) {
+					/* the link is copied and saved by finish_jobs() on the UI thread */
+					share_job_.phase = 1;
+					share_job_.progress = 0;
+					if (r2_upload(cfg, req.output, key, progress, &upload_err))
+						link = cfg.link(key);
+				}
 				std::lock_guard lock(share_job_.mutex);
 				share_job_.ok = ok;
 				share_job_.error = err;
 				share_job_.result = req.output;
 				share_job_.bytes = bytes;
+				share_job_.link = link;
+				share_job_.upload_error = upload_err;
 				share_job_.done = true;
 				share_job_.running = false;
 			});
@@ -277,8 +314,10 @@ void AppUI::share_dialog()
 		ImGui::EndGroup();
 	} else if (running) {
 		ImGui::Dummy(ImVec2(0, px(20)));
-		text(fonts.title, col::text, "Making your share copy…");
-		text(fonts.body, col::muted, "Encoding on your GPU. You can keep playing.");
+		const bool uploading = share_job_.phase == 1;
+		text(fonts.title, col::text, uploading ? "Uploading your clip…" : "Making your share copy…");
+		text(fonts.body, col::muted,
+		     uploading ? "To your Cloudflare storage. The link is copied when it is done." : "Encoding on your GPU. You can keep playing.");
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		float pr = share_job_.progress.load();
 		dl->AddRectFilled(p, ImVec2(p.x + inner, p.y + px(8)), col::bg0, px(4));
@@ -298,28 +337,56 @@ void AppUI::share_dialog()
 					  px(16));
 			draw_icon(dl, Icon::Check, ic, px(30), col::ink);
 			ImGui::Dummy(ImVec2(inner, px(76)));
-			const char *head = settings_.share.copy_to_clipboard ? "Copied. Paste it anywhere." : "Share copy ready.";
+			const bool linked = !share_job_.link.empty();
+			const bool upload_failed = !share_job_.upload_error.empty();
+			const bool copied = linked || (settings_.share.copy_to_clipboard && !upload_failed);
+			const char *head = linked	   ? "Link copied. Paste it anywhere."
+					   : upload_failed ? "Share copy ready, but the upload failed."
+					   : copied	   ? "Copied. Paste it anywhere."
+							   : "Share copy ready.";
 			ImVec2 hs = measure(fonts.title, head);
 			ImGui::SetCursorPosX((ImGui::GetWindowWidth() - hs.x) / 2);
 			text(fonts.title, col::text, "%s", head);
-			std::string line = settings_.share.copy_to_clipboard
-						   ? "Open the chat and press Ctrl + V. The file is " + hl::format_bytes((uint64_t)share_job_.bytes) + "."
-						   : "The file is " + hl::format_bytes((uint64_t)share_job_.bytes) + ".";
-			ImVec2 ls = measure(fonts.body, line.c_str());
-			ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ls.x) / 2);
-			text(fonts.body, col::muted, "%s", line.c_str());
-			ImVec2 ps = measure(fonts.mono_small, share_job_.result.c_str());
+			std::string line = linked ? "It plays in any browser and right in Discord. The file is " +
+							    hl::format_bytes((uint64_t)share_job_.bytes) + "."
+					   : upload_failed ? share_job_.upload_error
+					   : copied	   ? "Open the chat and press Ctrl + V. The file is " +
+								 hl::format_bytes((uint64_t)share_job_.bytes) + "."
+							   : "The file is " + hl::format_bytes((uint64_t)share_job_.bytes) + ".";
+			if (measure(fonts.body, line.c_str()).x > inner) {
+				text_wrapped(fonts.body, col::muted, inner, "%s", line.c_str());
+			} else {
+				ImVec2 ls = measure(fonts.body, line.c_str());
+				ImGui::SetCursorPosX((ImGui::GetWindowWidth() - ls.x) / 2);
+				text(fonts.body, col::muted, "%s", line.c_str());
+			}
+			const std::string &shown = linked ? share_job_.link : share_job_.result;
+			ImVec2 ps = measure(fonts.mono_small, shown.c_str());
 			ImGui::SetCursorPosX(std::max(px(24), (ImGui::GetWindowWidth() - ps.x) / 2));
-			text(fonts.mono_small, col::muted, "%s", share_job_.result.c_str());
+			text(fonts.mono_small, linked ? col::accent_text : col::muted, "%s", shown.c_str());
 			ImGui::Dummy(ImVec2(0, px(6)));
 			float bw = px(160);
 			ImGui::SetCursorPosX((ImGui::GetWindowWidth() - bw * 3 - px(16)) / 2);
-			if (secondary_button("Change settings##again", ImVec2(bw, px(48)))) {
+			if (linked) {
+				if (secondary_button("Copy link##copylink", ImVec2(bw, px(48)), Icon::Share))
+					copy_link(share_job_.link);
+			} else if (upload_failed) {
+				if (secondary_button("Try again##reupload", ImVec2(bw, px(48)), Icon::Share)) {
+					start_upload(share_job_.result, share_job_.source, e.clip.name);
+					share_job_.done = false;
+					ImGui::CloseCurrentPopup();
+					share_open_ = false;
+				}
+			} else if (secondary_button("Change settings##again", ImVec2(bw, px(48)))) {
 				share_job_.done = false;
 			}
 			ImGui::SameLine(0, px(8));
-			if (secondary_button("Show in folder##sharefolder", ImVec2(bw, px(48)), Icon::Folder))
+			if (linked) {
+				if (secondary_button("Open link##openlink", ImVec2(bw, px(48))))
+					ShellExecuteW(nullptr, L"open", hl::widen(share_job_.link).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+			} else if (secondary_button("Show in folder##sharefolder", ImVec2(bw, px(48)), Icon::Folder)) {
 				show_in_folder(share_job_.result);
+			}
 			ImGui::SameLine(0, px(8));
 			if (primary_button("DONE##sharedone", ImVec2(bw, px(48)))) {
 				share_job_.done = false;

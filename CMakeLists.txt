@@ -86,7 +86,7 @@ add_library(hl_common STATIC
   src/common/strings.cpp)
 target_include_directories(hl_common PUBLIC src)
 target_include_directories(hl_common SYSTEM PUBLIC "${OBS_DEPS_DIR}/include")
-target_link_libraries(hl_common PUBLIC hl_options shell32 ole32 windowscodecs)
+target_link_libraries(hl_common PUBLIC hl_options shell32 ole32 windowscodecs crypt32)
 
 add_library(hl_media STATIC
   src/media/audio_mix.cpp
@@ -144,9 +144,11 @@ add_executable(highlight-ui WIN32
   src/ui/settings_pages.cpp
   src/ui/share_dialog.cpp
   src/ui/textures.cpp
+  src/ui/links.cpp
+  src/ui/r2.cpp
   src/ui/updater.cpp
   src/ui/audio_out.cpp)
-target_link_libraries(highlight-ui PRIVATE hl_media imgui winhttp d3d11 dxgi d3dcompiler dwmapi winmm shell32 ole32 oleaut32 uuid comdlg32 user32 gdi32)
+target_link_libraries(highlight-ui PRIVATE hl_media imgui winhttp bcrypt d3d11 dxgi d3dcompiler dwmapi winmm shell32 ole32 oleaut32 uuid comdlg32 user32 gdi32)
 hl_add_resources(highlight-ui "Highlight" highlight-ui)
 
 # --- Highlight.exe: tiny launcher at the top of the install folder ----------

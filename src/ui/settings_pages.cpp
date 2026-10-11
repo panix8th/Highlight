@@ -1,4 +1,5 @@
 #include "app_ui.h"
+#include "r2.h"
 
 #include "../common/strings.h"
 
@@ -7,6 +8,7 @@
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <psapi.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 
 #include <algorithm>
@@ -992,6 +994,125 @@ void AppUI::overlay_page()
 		send({{"cmd", "quit"}});
 		close_requested_ = true;
 	}
+	end_card();
+	ImGui::EndGroup();
+}
+
+/* ------------------------------------------------------------------ */
+/* Share links                                                        */
+
+void AppUI::links_page()
+{
+	auto &sh = settings_.share;
+	page_header("Share links", "Share a link instead of a file, like Medal. Clips go to your own Cloudflare storage.");
+	Columns cols;
+
+	ImGui::BeginGroup();
+	begin_card("##r2", cols.col_w);
+	card_header("Your Cloudflare R2 storage",
+		    "Free up to 10 GB. Only you can upload. Anyone with a link can watch that one clip; the rest stay private.");
+	auto field = [&](const char *label, const char *id, std::string &v, const char *hint, int flags = 0) {
+		text(fonts.body_semibold, col::text, "%s", label);
+		if (input_text(id, v, -1, hint, flags)) {
+			mark_settings_dirty();
+			std::lock_guard lock(links_test_job_.mutex);
+			links_test_job_.done = false; /* an old test result no longer applies */
+		}
+	};
+	field("Account ID", "##r2acc", sh.r2_account, "32 characters, or the S3 API address");
+	field("Access key ID", "##r2key", sh.r2_access_key, "from the R2 API token");
+	field("Secret access key", "##r2secret", sh.r2_secret, "from the R2 API token", ImGuiInputTextFlags_Password);
+	field("Bucket name", "##r2bucket", sh.r2_bucket, "for example highlight-clips");
+	field("Public bucket address", "##r2pub", sh.r2_public_url, "https://pub-....r2.dev");
+	ImGui::Dummy(ImVec2(0, px(2)));
+
+	const bool testing = links_test_job_.running;
+	if (secondary_button(testing ? "Testing…##r2test" : "Test the connection##r2test", ImVec2(-1, px(44)), Icon::Check,
+			     !testing)) {
+		flush_settings(true);
+		const R2Config cfg = R2Config::from(sh);
+		links_test_job_.join();
+		links_test_job_.running = true;
+		{
+			std::lock_guard lock(links_test_job_.mutex);
+			links_test_job_.done = false;
+		}
+		links_test_job_.thread = std::thread([this, cfg]() {
+			std::string err;
+			const bool ok = r2_test(cfg, &err);
+			std::lock_guard lock(links_test_job_.mutex);
+			links_test_job_.ok = ok;
+			links_test_job_.error = err;
+			links_test_job_.done = true;
+			links_test_job_.running = false;
+		});
+	}
+	{
+		std::lock_guard lock(links_test_job_.mutex);
+		if (links_test_job_.done) {
+			const float wrap = ImGui::GetContentRegionAvail().x;
+			if (links_test_job_.ok)
+				text_wrapped(fonts.body_semibold, col::accent_text, wrap,
+					     "It works. Uploads go through and their links open in any browser.");
+			else
+				text_wrapped(fonts.body, col::text, wrap, "%s", links_test_job_.error.c_str());
+		}
+	}
+	end_card();
+	ImGui::EndGroup();
+
+	if (cols.two)
+		ImGui::SameLine(0, px(16));
+
+	ImGui::BeginGroup();
+	begin_card("##r2how", cols.col_w);
+	card_header("Set it up once", "About five minutes in the Cloudflare dashboard. Cloudflare may ask for a payment "
+				     "method to turn on R2; staying under 10 GB costs nothing.");
+	static const char *steps[] = {
+		"Sign in at dash.cloudflare.com (a free account works) and open R2 Object Storage.",
+		"Create a bucket, for example \"highlight-clips\". Paste its name here.",
+		"In the bucket: Settings > Public access > R2.dev subdomain > Allow. Paste the address it shows "
+		"(https://pub-....r2.dev) as the public bucket address.",
+		"Back in R2: Manage API tokens > Create API token. Permission: Object Read & Write, only for this bucket. "
+		"Paste the Access Key ID and the Secret Access Key here.",
+		"Copy the Account ID from the R2 overview page (or paste the whole S3 API address), then press Test.",
+	};
+	const float wrap = ImGui::GetContentRegionAvail().x - px(28);
+	for (int i = 0; i < 5; i++) {
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		char n[4];
+		snprintf(n, sizeof(n), "%d", i + 1);
+		dl->AddCircleFilled(ImVec2(p.x + px(10), p.y + px(10)), px(10), col::bg3);
+		const ImVec2 ns = measure(fonts.mono_small, n);
+		dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(p.x + px(10) - ns.x / 2, p.y + px(10) - ns.y / 2),
+			    col::accent_text, n);
+		ImGui::SetCursorScreenPos(ImVec2(p.x + px(28), p.y + px(1)));
+		text_wrapped(fonts.body, col::text, wrap, "%s", steps[i]);
+	}
+	ImGui::Dummy(ImVec2(0, px(2)));
+	if (secondary_button("Open the Cloudflare dashboard##cfdash", ImVec2(-1, px(44)), Icon::Share))
+		ShellExecuteW(nullptr, L"open", L"https://dash.cloudflare.com/?to=/:account/r2/overview", nullptr, nullptr,
+			      SW_SHOWNORMAL);
+	end_card();
+
+	begin_card("##r2links", cols.col_w, true);
+	card_header("Your links");
+	const uint64_t used = library_.uploaded_bytes();
+	text(fonts.body_semibold, col::text, "%d %s · %s of the 10 GB free", (int)library_.upload_count(),
+	     library_.upload_count() == 1 ? "clip" : "clips", hl::format_bytes(used).c_str());
+	{
+		ImDrawList *dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float frac = std::min(1.0f, (float)((double)used / (10.0 * 1024 * 1024 * 1024)));
+		dl->AddRectFilled(p, ImVec2(p.x + w, p.y + px(8)), col::bg3, px(4));
+		dl->AddRectFilled(p, ImVec2(p.x + w * frac, p.y + px(8)), col::accent, px(4));
+		ImGui::Dummy(ImVec2(w, px(8)));
+	}
+	text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
+		     "Upload or copy a link from a clip's ··· menu, or from Share. \"Delete link\" in that menu removes "
+		     "it from your storage. Deleting a clip here keeps its link working.");
 	end_card();
 	ImGui::EndGroup();
 }

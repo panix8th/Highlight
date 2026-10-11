@@ -73,6 +73,10 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 <td><img src="docs/screenshots/audio.png" alt="Audio settings"><br><b>Audio:</b> game, mic, Discord and other apps on separate tracks</td>
 <td><img src="docs/screenshots/overlay.png" alt="Overlay and alert settings"><br><b>Overlay & alerts:</b> banner, sounds, updates, restart capture</td>
 </tr>
+<tr>
+<td><img src="docs/screenshots/share-link.png" alt="Link copied after uploading a clip"><br><b>Share links:</b> upload and get a link that plays in the browser and in Discord</td>
+<td><img src="docs/screenshots/links.png" alt="Share link settings"><br><b>Share link settings:</b> your own Cloudflare R2 storage, set up once</td>
+</tr>
 </table>
 
 ## What it does
@@ -106,6 +110,23 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 - Fit under 10 MB / 50 MB / 500 MB or a custom size. Highlight picks the best resolution and frame rate for the limit and encodes on your GPU with quality-focused NVENC settings. If a file overshoots, it retries automatically.
 - Or pick "Best quality": a constant-quality copy that looks the same as the original. If that wouldn't be smaller than the original, Highlight uses a lossless cut instead.
 - H.264 (plays everywhere), HEVC or AV1. The finished file goes on the clipboard: press Ctrl+V in Discord.
+
+**Share links (like Medal)**
+- Share a link instead of a file: Highlight uploads the clip to **your own Cloudflare R2 storage** and puts the link on your clipboard. It plays in any browser and right inside Discord, with no download and no size limit from Discord.
+- From a clip's ··· menu (*Upload & copy link*, *Copy link*, *Delete link*), or turn on *Upload and copy a link* in Share to upload the smaller share copy.
+- Free up to 10 GB. Links are long random addresses, only you can upload, and *Delete link* removes the file from your storage. See [Share links: setup](#share-links-setup).
+
+## Share links: setup
+
+Share links need a free Cloudflare account; the clips go to storage that belongs to you, not to Highlight. It takes about five minutes, once. The same steps are in the app under **Settings → Share links**.
+
+1. Sign in at [dash.cloudflare.com](https://dash.cloudflare.com) and open **R2 Object Storage**. Cloudflare may ask for a payment method to turn on R2; staying within the free tier (10 GB) costs nothing.
+2. **Create a bucket**, for example `highlight-clips`.
+3. In the bucket: **Settings → Public access → R2.dev subdomain → Allow**. Copy the address it shows (`https://pub-….r2.dev`).
+4. Back in R2: **Manage API tokens → Create API token**, permission **Object Read & Write**, limited to that bucket. Copy the **Access Key ID** and the **Secret Access Key**.
+5. In Highlight, **Settings → Share links**: paste the Account ID (from the R2 overview page, or the whole S3 API address), the two keys, the bucket name and the public address, then press **Test the connection**.
+
+The secret key is stored encrypted for your Windows user (DPAPI) in `%APPDATA%\Highlight\settings.json`.
 
 ## Why it stays light
 
@@ -149,7 +170,10 @@ GitHub Actions does all of this for you (`.github/workflows/build.yml`): it buil
 
 ## Privacy
 
-This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only network access is the update check: when the window opens, Highlight asks GitHub (`api.github.com`) for the latest release. It sends no clips, settings or usage data, and you can turn it off in Settings → Overlay & alerts.
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. There are two kinds of network access:
+
+- **Update check:** when the window opens, Highlight asks GitHub (`api.github.com`) for the latest release. It sends no clips, settings or usage data, and you can turn it off in Settings → Overlay & alerts.
+- **Share links:** only when you press *Upload & copy link* (or turn on the upload in Share), that clip is uploaded to the Cloudflare R2 storage you set up yourself. Nothing is uploaded otherwise, and nothing goes to the Highlight project.
 
 ## Logo
 

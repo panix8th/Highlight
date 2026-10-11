@@ -23,4 +23,19 @@ inline void fill_logo_mark(Gdiplus::Graphics &g, const Gdiplus::Brush &brush, fl
 	}
 }
 
+/* Fills the mark on an icon tile whose top-left corner is (tx, ty) and which is
+ * tile_px wide, hinted for small sizes (logo_icon_placement). */
+inline void fill_logo_icon_mark(Gdiplus::Graphics &g, const Gdiplus::Brush &brush, float tx, float ty, float tile_px)
+{
+	const LogoPlacement pl = logo_icon_placement(tile_px);
+	const auto &mark = logo_mark();
+	std::vector<Gdiplus::PointF> pts;
+	for (size_t i = 0; i < mark.size(); i++) {
+		pts.clear();
+		for (const LogoPoint &p : mark[i])
+			pts.emplace_back(tx + pl.x + pl.dx[i] + p.x * pl.scale, ty + pl.y + p.y * pl.scale);
+		g.FillPolygon(&brush, pts.data(), (INT)pts.size());
+	}
+}
+
 } // namespace hl

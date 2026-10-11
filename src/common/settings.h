@@ -132,6 +132,14 @@ struct ShareSettings {
 	int nitro_mb = 500;
 	int custom_mb = 25;
 	bool copy_to_clipboard = true;
+	bool upload_link = false; /* upload the share copy and copy its link instead of the file */
+
+	/* Share links: uploads go to the user's own Cloudflare R2 bucket */
+	std::string r2_account;    /* account ID, or the S3 endpoint URL */
+	std::string r2_access_key; /* API token: Access Key ID */
+	std::string r2_secret;     /* API token: Secret Access Key (saved encrypted for this Windows user) */
+	std::string r2_bucket;
+	std::string r2_public_url; /* the bucket's public address (https://pub-....r2.dev or a custom domain) */
 };
 
 struct Settings {

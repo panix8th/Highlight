@@ -718,14 +718,15 @@ bool slider_int(const char *id, int *v, int lo, int hi, const char *fmt, float w
 	return changed;
 }
 
-bool input_text(const char *id, std::string &value, float width, const char *hint)
+bool input_text(const char *id, std::string &value, float width, const char *hint, int flags)
 {
 	char buf[1024];
 	snprintf(buf, sizeof(buf), "%s", value.c_str());
 	push_field_style();
 	ImGui::SetNextItemWidth(width);
 	ImGui::PushFont(fonts.mono);
-	bool changed = hint ? ImGui::InputTextWithHint(id, hint, buf, sizeof(buf)) : ImGui::InputText(id, buf, sizeof(buf));
+	bool changed = hint ? ImGui::InputTextWithHint(id, hint, buf, sizeof(buf), flags)
+			    : ImGui::InputText(id, buf, sizeof(buf), flags);
 	ImGui::PopFont();
 	pop_field_style();
 	if (changed)

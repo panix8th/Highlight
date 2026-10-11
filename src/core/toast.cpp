@@ -162,7 +162,7 @@ static void draw_card(Graphics &g, int w, int h, float s, const ToastContent &c,
 	case ToastKind::Info:
 	default: {
 		/* the Highlight mark, as on the app icon */
-		fill_logo_mark(g, ink, cx, cy, 42 * s * logo_mark_fraction(42 * s));
+		fill_logo_icon_mark(g, ink, 16 * s, 18 * s, 42 * s);
 		break;
 	}
 	}

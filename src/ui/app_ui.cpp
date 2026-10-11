@@ -48,8 +48,11 @@ void AppUI::shutdown()
 	flush_settings(true);
 	share_job_.cancel = true;
 	trim_job_.cancel = true;
+	upload_job_.cancel = true;
 	share_job_.join();
 	trim_job_.join();
+	upload_job_.join();
+	links_test_job_.join();
 	editor_close();
 	if (capturing_)
 		send({{"cmd", "hotkeys_enabled"}, {"enabled", true}});
@@ -68,7 +71,7 @@ bool AppUI::wants_fast_refresh() const
 {
 	if (ed_ && ed_->open && ed_->player.playing())
 		return true;
-	if (share_job_.running || trim_job_.running || scanning_)
+	if (share_job_.running || trim_job_.running || upload_job_.running || links_test_job_.running || scanning_)
 		return true;
 	if (capturing_)
 		return true;
@@ -548,6 +551,7 @@ void AppUI::frame()
 	update_tick();
 	flush_settings(false);
 	poll_hotkey_capture();
+	finish_jobs();
 	if (rescan_.exchange(false))
 		scan_library_async();
 
@@ -614,6 +618,9 @@ void AppUI::frame()
 	case Page::Overlay:
 		overlay_page();
 		break;
+	case Page::Links:
+		links_page();
+		break;
 	}
 	ImGui::Dummy(ImVec2(0, px(16)));
 	ImGui::EndChild();
@@ -621,6 +628,7 @@ void AppUI::frame()
 
 	share_dialog();
 	ImGui::End();
+	draw_upload_bar();
 	draw_notice();
 }
 
@@ -711,6 +719,8 @@ void AppUI::draw_sidebar()
 		page_ = Page::Audio;
 	if (nav_item("Overlay & alerts", Icon::Bell, page_ == Page::Overlay))
 		page_ = Page::Overlay;
+	if (nav_item("Share links", Icon::Share, page_ == Page::Links))
+		page_ = Page::Links;
 
 	/* buffer card pinned to the bottom */
 	const float card_h = px(178);

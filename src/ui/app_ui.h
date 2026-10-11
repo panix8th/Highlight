@@ -28,7 +28,7 @@
 
 namespace ui {
 
-enum class Page { Library, Editor, Clipping, Video, Audio, Overlay };
+enum class Page { Library, Editor, Clipping, Video, Audio, Overlay, Links };
 
 struct ClipItem {
 	std::string path;
@@ -74,6 +74,12 @@ struct Job {
 	std::string result; /* output path */
 	std::string error;
 	int64_t bytes = 0;
+	/* share links */
+	std::atomic<int> phase{0}; /* share: 0 encoding, 1 uploading; upload job: 0 upload, 2 delete */
+	std::string source;        /* clip the upload belongs to */
+	std::string key, link;     /* object name and public link once uploaded */
+	std::string upload_error;  /* share copy made, upload failed */
+	bool handled = true;       /* the frame loop has picked up the result */
 
 	void join()
 	{
@@ -143,6 +149,14 @@ private:
 	/* share_dialog.cpp */
 	void open_share();
 	void share_dialog();
+
+	/* share links (links.cpp; the R2 client is r2.cpp) */
+	void links_page(); /* settings_pages.cpp */
+	void start_upload(const std::string &file, const std::string &clip_path, const std::string &name);
+	void start_unlink(const std::string &clip_path);
+	void finish_jobs(); /* picks up finished uploads: saves the link, copies it */
+	void draw_upload_bar();
+	void copy_link(const std::string &link);
 
 	HWND hwnd_ = nullptr;
 	Page page_ = Page::Library;
@@ -217,6 +231,11 @@ private:
 	bool share_open_ = false;
 	bool share_popup_pending_ = false;
 	Job share_job_;
+
+	/* share links */
+	Job upload_job_;
+	std::string upload_name_;
+	Job links_test_job_;
 
 	/* settings pages */
 	hl::Hotkey *capturing_ = nullptr;

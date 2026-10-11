@@ -89,7 +89,7 @@ void card_header(const char *title, const char *desc = nullptr);
 /* inputs */
 bool combo(const char *label, int *current, const std::vector<std::string> &items, float width);
 bool slider_int(const char *id, int *v, int lo, int hi, const char *fmt, float width);
-bool input_text(const char *id, std::string &value, float width, const char *hint = nullptr);
+bool input_text(const char *id, std::string &value, float width, const char *hint = nullptr, int flags = 0);
 void value_box(const char *text, float width, bool mono = true, ImU32 color = col::text);
 
 /* status dot with a soft ring */

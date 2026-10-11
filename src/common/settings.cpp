@@ -4,6 +4,7 @@
 #include "strings.h"
 
 #include <windows.h>
+#include <wincrypt.h>
 
 #include <algorithm>
 #include <fstream>
@@ -12,6 +13,49 @@
 using json = nlohmann::json;
 
 namespace hl {
+
+/* ------------------------------------------------------------------ */
+/* secrets: encrypted with DPAPI, readable only by this Windows user  */
+
+static std::string protect_secret(const std::string &plain)
+{
+	if (plain.empty())
+		return {};
+	DATA_BLOB in = {(DWORD)plain.size(), (BYTE *)plain.data()}, out = {};
+	if (!CryptProtectData(&in, L"Highlight", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out))
+		return {};
+	DWORD len = 0;
+	std::string b64;
+	if (CryptBinaryToStringA(out.pbData, out.cbData, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &len)) {
+		b64.resize(len);
+		if (CryptBinaryToStringA(out.pbData, out.cbData, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, b64.data(), &len))
+			b64.resize(len);
+		else
+			b64.clear();
+	}
+	LocalFree(out.pbData);
+	return b64;
+}
+
+static std::string unprotect_secret(const std::string &b64)
+{
+	if (b64.empty())
+		return {};
+	DWORD len = 0;
+	if (!CryptStringToBinaryA(b64.c_str(), (DWORD)b64.size(), CRYPT_STRING_BASE64, nullptr, &len, nullptr, nullptr))
+		return {};
+	std::string raw(len, '\0');
+	if (!CryptStringToBinaryA(b64.c_str(), (DWORD)b64.size(), CRYPT_STRING_BASE64, (BYTE *)raw.data(), &len, nullptr,
+				  nullptr))
+		return {};
+	DATA_BLOB in = {len, (BYTE *)raw.data()}, out = {};
+	if (!CryptUnprotectData(&in, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out))
+		return {}; /* another user or PC: the secret has to be entered again */
+	std::string plain((const char *)out.pbData, out.cbData);
+	SecureZeroMemory(out.pbData, out.cbData);
+	LocalFree(out.pbData);
+	return plain;
+}
 
 /* ------------------------------------------------------------------ */
 /* key names                                                          */
@@ -226,7 +270,13 @@ static json to_json(const Settings &s)
 		      {"nitro_basic_mb", sh.nitro_basic_mb},
 		      {"nitro_mb", sh.nitro_mb},
 		      {"custom_mb", sh.custom_mb},
-		      {"copy_to_clipboard", sh.copy_to_clipboard}};
+		      {"copy_to_clipboard", sh.copy_to_clipboard},
+		      {"upload_link", sh.upload_link},
+		      {"r2_account", sh.r2_account},
+		      {"r2_access_key", sh.r2_access_key},
+		      {"r2_secret_dpapi", protect_secret(sh.r2_secret)},
+		      {"r2_bucket", sh.r2_bucket},
+		      {"r2_public_url", sh.r2_public_url}};
 
 	j["version"] = 1;
 	return j;
@@ -348,6 +398,14 @@ static void from_json(const json &j, Settings &s)
 		read(*it, "nitro_mb", sh.nitro_mb);
 		read(*it, "custom_mb", sh.custom_mb);
 		read(*it, "copy_to_clipboard", sh.copy_to_clipboard);
+		read(*it, "upload_link", sh.upload_link);
+		read(*it, "r2_account", sh.r2_account);
+		read(*it, "r2_access_key", sh.r2_access_key);
+		std::string secret;
+		read(*it, "r2_secret_dpapi", secret);
+		sh.r2_secret = unprotect_secret(secret);
+		read(*it, "r2_bucket", sh.r2_bucket);
+		read(*it, "r2_public_url", sh.r2_public_url);
 	}
 }
 

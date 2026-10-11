@@ -355,6 +355,16 @@ void AppUI::clip_menu()
 				open_editor(item);
 				open_share();
 			}
+			/* share links (Settings > Share links) */
+			const hl::Upload *up = library_.upload(item.path);
+			const std::string link = up ? up->link : std::string();
+			const bool uploading = upload_job_.running && upload_job_.source == item.path;
+			if (!link.empty()) {
+				if (entry("Copy link", Icon::Share))
+					copy_link(link);
+			} else if (entry(uploading ? "Uploading…" : "Upload & copy link", Icon::Share) && !uploading) {
+				start_upload(item.path, item.path, item.name);
+			}
 			if (entry(fav ? "Remove from favourites" : "Add to favourites", fav ? Icon::StarFilled : Icon::Star)) {
 				library_.set_favorite(item.path, !fav);
 				library_.save();
@@ -368,6 +378,8 @@ void AppUI::clip_menu()
 				open_rename_ = true;
 			}
 			ImGui::Separator();
+			if (!link.empty() && entry("Delete link", Icon::Close))
+				start_unlink(item.path);
 			if (entry("Delete", Icon::Trash))
 				delete_clip(item.path);
 		}

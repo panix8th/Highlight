@@ -47,7 +47,7 @@ HICON make_icon(IconState state, int size)
 		g.FillRectangle(&fg_brush, 12 * s, 11 * s, 5.5f * s, 18 * s);
 		g.FillRectangle(&fg_brush, 22.5f * s, 11 * s, 5.5f * s, 18 * s);
 	} else {
-		fill_logo_mark(g, fg_brush, size / 2.0f, size / 2.0f, size * logo_mark_fraction((float)size));
+		fill_logo_icon_mark(g, fg_brush, 0, 0, (float)size);
 		if (state == IconState::Recording) {
 			/* a ring in the tile colour keeps the dot apart from the mark's right bar */
 			Region tile_area(&box);

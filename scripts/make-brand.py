@@ -36,13 +36,14 @@ PANEL = (0x11, 0x13, 0x17)
 # the mark: 96 x 110 units, clockwise outlines, (x, y, corner radius)
 
 MARK_W, MARK_H = 96.0, 110.0
-R_BAR, R_TRI, R_NOTCH, R_NOTCH_EDGE = 2.2, 2.2, 3.0, 0.8
+R_BAR, R_TRI, R_NOTCH, R_NOTCH_EDGE = 2.2, 2.2, 1.75, 0.8
 MARK = [
     # left bar: both bars are slanted 18 units over their 29 unit width
     [(0, 18, R_BAR), (29, 0, R_BAR), (29, 92, R_BAR), (0, 110, R_BAR)],
-    # right bar, with the notch the triangle points into
+    # right bar, with the notch the triangle points into: edges parallel to the
+    # triangle's (an even gap), ending in a short flat tip
     [(67, 18, R_BAR), (96, 0, R_BAR), (96, 92, R_BAR), (67, 110, R_BAR),
-     (67, 71.5, R_NOTCH_EDGE), (87.75, 55, R_NOTCH), (67, 38.5, R_NOTCH_EDGE)],
+     (67, 70.6, R_NOTCH_EDGE), (84.6, 60, R_NOTCH), (84.6, 50, R_NOTCH), (67, 39.4, R_NOTCH_EDGE)],
     # play triangle, centred on the bars
     [(38, 32.75, R_TRI), (73.5, 55, R_TRI), (38, 77.25, R_TRI)],
 ]
@@ -124,11 +125,34 @@ def draw_mark(draw, cx, cy, height, fill, polys=None):
         draw.polygon([(ox + x * s, oy + y * s) for x, y in pts], fill=fill)
 
 
+def icon_placement(tile):
+    """Same as logo_icon_placement() in logo.cpp: scale, x, y, per-outline x shift.
+    Tiles up to 48 px are hinted so the bars' upright edges sit on pixel boundaries."""
+    s = tile * mark_fraction(tile) / MARK_H
+    dx = [0.0, 0.0, 0.0]
+    if tile <= 48:
+        bar = round(29 * s)
+        if bar >= 2 and abs(bar - 29 * s) <= 0.3:
+            s = bar / 29
+        x = round((tile - MARK_W * s) / 2)
+        y = round((tile - MARK_H * s) / 2)
+        dx[1] = round(x + 67 * s) - (x + 67 * s)
+        dx[2] = round(x + 38 * s) - (x + 38 * s)
+    else:
+        x = (tile - MARK_W * s) / 2
+        y = (tile - MARK_H * s) / 2
+    return s, x, y, dx
+
+
 def draw_tile(draw, x, y, size, scale=1):
-    """Orange rounded square with the mark; size is the final (unscaled) size in pixels."""
+    """Orange rounded square with the mark; size is the final (unscaled) size in pixels,
+    scale the supersampling factor of the canvas."""
     big = size * scale
     draw.rounded_rectangle((x, y, x + big - 1, y + big - 1), radius=big * 0.25, fill=ORANGE + (255,))
-    draw_mark(draw, x + big / 2, y + big / 2, big * mark_fraction(size), INK + (255,))
+    s, mx, my, dx = icon_placement(size)
+    for i, pts in enumerate(mark_polygons()):
+        draw.polygon([(x + (mx + dx[i] + px * s) * scale, y + (my + py * s) * scale) for px, py in pts],
+                     fill=INK + (255,))
 
 
 def icon_image(size):
@@ -176,6 +200,10 @@ class Wordmark:
 
     def glyphs(self):
         return [self.cmap[ord(c)] for c in WORD]
+
+    def left_bearing(self):
+        """Space before the ink of the first letter, in em."""
+        return self.hmtx[self.glyphs()[0]][1] / self.upm
 
     def width(self, em):
         names = self.glyphs()
@@ -238,11 +266,12 @@ def write_svgs(wm, out):
         body = tile_svg(0, 0, tile) + f'<path fill="{hexc(color)}" d="{wm.svg_path(wx, baseline, em)}"/>'
         (out / name).write_text(svg_doc(math.ceil(w), tile, body))
 
-    # the original artwork: white mark and wordmark (no tile)
+    # the original artwork: white mark and wordmark (no tile). The gap is measured to
+    # the ink of the "h", so the pen starts its side bearing earlier.
     mh = 108.0
     s = mh / MARK_H
     em2 = mh * 0.61
-    wx2 = MARK_W * s + mh * 0.36
+    wx2 = MARK_W * s + mh * 0.356 - wm.left_bearing() * em2
     base2 = mh / 2 + wm.x_height * em2 / 2
     body = (f'<path fill="#FFFFFF" d="{mark_svg_path(0, 0, s)}"/>'
             f'<path fill="#FFFFFF" d="{wm.svg_path(wx2, base2, em2)}"/>')
@@ -298,6 +327,7 @@ def write_wizard_images(wm):
         scale = W / 164  # the layout below is designed at 164 x 314
         big = Image.new("RGBA", (W * SS, H * SS), PANEL + (255,))
         tile = round(76 * scale)
+        tile += (W - tile) % 2  # centred on whole pixels
         draw_tile(ImageDraw.Draw(big), (W - tile) * SS // 2, round(H * SS * 0.30), tile, SS)
         em = 30 * scale
         x = (W - wm.width(em)) / 2
@@ -311,7 +341,9 @@ def write_wizard_images(wm):
         img.convert("RGB").save(inst / f"wizard-image{suffix}.bmp")
 
         small = Image.new("RGBA", (small_px, small_px), (255, 255, 255, 255))
-        icon = icon_image(round(small_px * 48 / 58))
+        side = round(small_px * 48 / 58)
+        side += (small_px - side) % 2  # centred on whole pixels
+        icon = icon_image(side)
         small.alpha_composite(icon, ((small_px - icon.width) // 2, (small_px - icon.height) // 2))
         small.convert("RGB").save(inst / f"wizard-small{suffix}.bmp")
 
