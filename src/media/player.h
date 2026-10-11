@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace hl::media {
@@ -35,6 +36,8 @@ public:
 	void pause();
 	void seek(double t);
 	void set_audio_streams(const std::vector<int> &streams);
+	/* Volume of one audio stream while mixing (1.0 = unchanged). Takes effect immediately. */
+	void set_audio_gain(int stream, float gain);
 	void set_volume(float v) { volume_ = v; }
 
 	/* UI thread: the newest frame that is due. Returns false if nothing changed. */
@@ -66,6 +69,7 @@ private:
 	double seek_target_ = 0;
 	bool streams_changed_ = false;
 	std::vector<int> audio_streams_;
+	std::vector<std::pair<int, float>> gains_; /* stream index -> gain */
 
 	/* output */
 	struct Frame {

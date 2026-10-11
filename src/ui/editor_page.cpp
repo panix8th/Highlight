@@ -2,6 +2,7 @@
 
 #include "../common/image.h"
 #include "../common/strings.h"
+#include "../media/audio_mix.h"
 #include "../media/remux.h"
 #include "../media/thumbnail.h"
 #include "../media/waveform.h"
@@ -40,6 +41,40 @@ static std::string unique_path(const fs::path &dir, const std::string &stem, con
 	return hl::narrow(p.wstring());
 }
 
+/* Thin volume slider, 0..200 %. Snaps to 100 % near the middle; double-click resets. */
+static bool volume_slider(const char *id, int *pct, ImVec2 pos, float w, float h, bool enabled)
+{
+	ImGui::SetCursorScreenPos(pos);
+	ImGui::InvisibleButton(id, ImVec2(w, h));
+	bool changed = false;
+	if (ImGui::IsItemActive()) {
+		float t = std::clamp((ImGui::GetIO().MousePos.x - pos.x) / w, 0.0f, 1.0f);
+		int v = (int)std::lround(t * 200.0f);
+		if (std::abs(v - 100) <= 4)
+			v = 100;
+		if (v != *pct) {
+			*pct = v;
+			changed = true;
+		}
+	}
+	if (ImGui::IsItemHovered()) {
+		if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && *pct != 100) {
+			*pct = 100;
+			changed = true;
+		}
+		ImGui::SetTooltip("Volume %d%% (double-click for 100%%)", *pct);
+	}
+	ImDrawList *dl = ImGui::GetWindowDrawList();
+	const float cy = pos.y + h * 0.5f;
+	dl->AddRectFilled(ImVec2(pos.x, cy - px(2)), ImVec2(pos.x + w, cy + px(2)), col::bg3, px(2));
+	const float mid = pos.x + w * 0.5f;
+	dl->AddLine(ImVec2(mid, cy - px(5)), ImVec2(mid, cy + px(5)), col::dim, px(1));
+	const float xv = pos.x + w * (*pct / 200.0f);
+	dl->AddRectFilled(ImVec2(pos.x, cy - px(2)), ImVec2(xv, cy + px(2)), enabled ? col::accent : col::dim, px(2));
+	dl->AddCircleFilled(ImVec2(xv, cy), px(6), enabled ? col::text : col::dim);
+	return changed;
+}
+
 /* ------------------------------------------------------------------ */
 
 void AppUI::open_editor(const ClipItem &clip)
@@ -67,6 +102,7 @@ void AppUI::open_editor(const ClipItem &clip)
 		ed->mix_stream = -1;
 	}
 	ed->lane_on.assign(ed->lanes.size(), true);
+	ed->lane_vol.assign(ed->lanes.size(), 100);
 	ed->peaks.resize(ed->lanes.size());
 	ed->in = 0;
 	ed->out = ed->info.duration;
@@ -81,7 +117,7 @@ void AppUI::open_editor(const ClipItem &clip)
 
 	Editor *e = ed.get();
 	ed_ = std::move(ed);
-	e->player.set_audio_streams(editor_selected_streams(false));
+	editor_sync_audio();
 	e->audio.start([e](float *dst, size_t frames) { return e->player.read_audio(dst, frames); });
 
 	/* waveforms and filmstrip in the background */
@@ -125,13 +161,51 @@ void AppUI::editor_close()
 	ed_.reset();
 }
 
+bool AppUI::editor_audio_adjusted() const
+{
+	if (!ed_)
+		return false;
+	for (size_t i = 0; i < ed_->lanes.size(); i++)
+		if (!ed_->lane_on[i] || ed_->lane_vol[i] != 100)
+			return true;
+	return false;
+}
+
+std::vector<float> AppUI::editor_selected_gains() const
+{
+	std::vector<float> out;
+	if (!ed_)
+		return out;
+	if (!editor_audio_adjusted() && ed_->mix_stream >= 0)
+		return {1.0f};
+	for (size_t i = 0; i < ed_->lanes.size(); i++)
+		if (ed_->lane_on[i])
+			out.push_back(ed_->lane_vol[i] / 100.0f);
+	return out;
+}
+
+void AppUI::editor_sync_audio()
+{
+	if (!ed_)
+		return;
+	Editor &e = *ed_;
+	std::vector<int> streams = editor_selected_streams(false);
+	if (streams != e.preview_streams) {
+		e.player.set_audio_streams(streams);
+		e.preview_streams = streams;
+	}
+	std::vector<float> gains = editor_selected_gains();
+	for (size_t i = 0; i < streams.size() && i < gains.size(); i++)
+		e.player.set_audio_gain(streams[i], gains[i]);
+}
+
 std::vector<int> AppUI::editor_selected_streams(bool for_lossless) const
 {
 	std::vector<int> out;
 	if (!ed_)
 		return out;
-	bool all = std::all_of(ed_->lane_on.begin(), ed_->lane_on.end(), [](bool b) { return b; });
-	if (all && ed_->mix_stream >= 0) {
+	/* untouched: the recorded mix (or every track for a lossless copy) */
+	if (!editor_audio_adjusted() && ed_->mix_stream >= 0) {
 		if (for_lossless) {
 			for (const auto &a : ed_->info.audio)
 				out.push_back(a.index);
@@ -277,7 +351,7 @@ void AppUI::editor_page()
 	{
 		/* player: leave room for the transport row and the whole timeline */
 		float ph = main_w * 9.0f / 16.0f;
-		const float timeline_h = px(196) + (float)e.lanes.size() * px(52);
+		const float timeline_h = px(196) + (float)e.lanes.size() * px(62);
 		const float room = ImGui::GetContentRegionAvail().y - px(62) - timeline_h - px(28);
 		const float max_h = std::max(px(200), room);
 		float pw = main_w;
@@ -431,7 +505,7 @@ void AppUI::editor_timeline(float width)
 	}
 
 	/* geometry */
-	const float label_w = px(156);
+	const float label_w = px(180);
 	const float gap = px(12);
 	ImVec2 origin = ImGui::GetCursorScreenPos();
 	const float track_x = origin.x + label_w + gap;
@@ -467,7 +541,7 @@ void AppUI::editor_timeline(float width)
 
 	/* lanes */
 	const float lanes_y = origin.y + ruler_h + px(6);
-	const float video_h = px(52), lane_h = px(44), lane_gap = px(8);
+	const float video_h = px(52), lane_h = px(54), lane_gap = px(8);
 	float y = lanes_y;
 
 	/* video lane */
@@ -496,18 +570,30 @@ void AppUI::editor_timeline(float width)
 		ImGui::PushID((int)i);
 		std::string tag = "T" + std::to_string(i + (e.mix_stream >= 0 ? 2 : 1));
 		ImVec2 ts = measure(fonts.mono_small, tag.c_str());
-		dl->AddRectFilled(ImVec2(origin.x, y + px(13)), ImVec2(origin.x + ts.x + px(10), y + px(31)), col::bg3, px(4));
-		dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(origin.x + px(5), y + px(15)), col::muted,
+		dl->AddRectFilled(ImVec2(origin.x, y + px(5)), ImVec2(origin.x + ts.x + px(10), y + px(23)), col::bg3, px(4));
+		dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(origin.x + px(5), y + px(7)), col::muted,
 			    tag.c_str());
-		text_ellipsis(dl, fonts.body_medium, ImVec2(origin.x + ts.x + px(18), y + px(13)), label_w - ts.x - px(62),
+		text_ellipsis(dl, fonts.body_medium, ImVec2(origin.x + ts.x + px(18), y + px(5)), label_w - ts.x - px(62),
 			      col::text, e.lane_names[i]);
-		ImGui::SetCursorScreenPos(ImVec2(origin.x + label_w - px(42), y + px(2)));
+		ImGui::SetCursorScreenPos(ImVec2(origin.x + label_w - px(42), y + px(7)));
 		bool on = e.lane_on[i];
 		if (icon_button("##mute", on ? Icon::Speaker : Icon::SpeakerMute, px(40), on ? "Mute this track" : "Unmute",
 				on ? col::text : col::dim)) {
 			e.lane_on[i] = !on;
 			streams_changed = true;
 		}
+		/* volume of this track, for the preview and every export */
+		{
+			const float sx = origin.x, sw = label_w - px(92), sy = y + px(32), sh = px(18);
+			if (volume_slider("##vol", &e.lane_vol[i], ImVec2(sx, sy), sw, sh, on))
+				streams_changed = true;
+			char pct[16];
+			snprintf(pct, sizeof(pct), "%d%%", e.lane_vol[i]);
+			dl->AddText(fonts.mono_small, fonts.mono_small->FontSize,
+				    ImVec2(sx + sw + px(8), sy + (sh - fonts.mono_small->FontSize) / 2),
+				    e.lane_vol[i] == 100 ? col::dim : col::text, pct);
+		}
+		const float gain = e.lane_vol[i] / 100.0f;
 
 		ImVec2 a(track_x, y), b(track_x + track_w, y + lane_h);
 		dl->AddRectFilled(a, b, col::bg0, px(6));
@@ -521,7 +607,7 @@ void AppUI::editor_timeline(float width)
 				float v = 0;
 				for (size_t s = s0; s < s1 && s < pk.size(); s++)
 					v = std::max(v, pk[s]);
-				float h = std::max(px(2), v * (lane_h - px(8)));
+				float h = std::max(px(2), std::min(1.0f, v * gain) * (lane_h - px(8)));
 				float x = track_x + k * (bar + bgap) + px(2);
 				double tt = (t0 + t1) / 2 * dur;
 				ImU32 c = !on ? col::off : (tt >= e.in && tt <= e.out) ? col::wave : col::wave_dim;
@@ -533,7 +619,7 @@ void AppUI::editor_timeline(float width)
 	}
 	const float lanes_bottom = y - lane_gap;
 	if (streams_changed)
-		pl.set_audio_streams(editor_selected_streams(false));
+		editor_sync_audio();
 
 	/* scrub area (under the handles) */
 	ImGui::SetCursorScreenPos(ImVec2(track_x, lanes_y));
@@ -608,6 +694,13 @@ void AppUI::start_trim_job(bool replace)
 	const std::string in_path = e.clip.path;
 	const double t_in = e.in, t_out = e.out >= e.info.duration - 0.01 ? -1 : e.out;
 	const std::vector<int> streams = editor_selected_streams(!exact);
+	const std::vector<float> gains = editor_selected_gains();
+	/* Lossless copies re-encode only the audio when the balance changed: video stays untouched. */
+	const bool gains_changed =
+		std::any_of(gains.begin(), gains.end(), [](float g) { return std::fabs(g - 1.0f) > 0.001f; });
+	const bool remix = !exact && editor_audio_adjusted() && !streams.empty() &&
+			   (gains_changed || (e.mix_stream >= 0 && streams.size() > 1));
+	const bool drop_audio = !exact && editor_audio_adjusted() && streams.empty();
 	const std::string format = replace ? (src.extension() == L".mkv" ? "matroska" : "mp4") : (e.format == 1 ? "matroska" : "mp4");
 
 	std::string codec = hl::to_lower(e.info.video_codec);
@@ -619,6 +712,7 @@ void AppUI::start_trim_job(bool replace)
 	req.start = t_in;
 	req.end = t_out;
 	req.audio_streams = streams;
+	req.audio_gains = gains;
 	req.codec = codec;
 	req.target_bytes = 0;
 	hl::media::SharePlan plan = hl::media::plan_share(e.info, req);
@@ -630,7 +724,8 @@ void AppUI::start_trim_job(bool replace)
 	}
 
 	trim_job_.running = true;
-	trim_job_.thread = std::thread([this, exact, replace, in_path, out, t_in, t_out, streams, format, req, plan]() {
+	trim_job_.thread = std::thread([this, exact, replace, in_path, out, t_in, t_out, streams, gains, remix, drop_audio,
+					format, req, plan]() {
 		std::string err;
 		bool ok;
 		if (exact) {
@@ -645,9 +740,23 @@ void AppUI::start_trim_job(bool replace)
 			hl::media::TrimOptions opt;
 			opt.start = t_in;
 			opt.end = t_out;
-			opt.audio_streams = streams;
+			opt.audio_streams = drop_audio ? std::vector<int>{-1} : streams; /* {-1}: no audio at all */
 			opt.format = format;
-			ok = hl::media::trim_lossless(in_path, out, opt, &err);
+			if (!remix) {
+				ok = hl::media::trim_lossless(in_path, out, opt, &err);
+			} else {
+				/* cut first, then rebuild the audio at the new volumes (and a new Mix track) */
+				const std::string cut = out + ".cut";
+				ok = hl::media::trim_lossless(in_path, cut, opt, &err);
+				if (ok) {
+					hl::media::AudioMixOptions mo;
+					mo.gains = gains;
+					mo.add_mix = streams.size() > 1;
+					mo.format = format;
+					ok = hl::media::remix_audio(cut, out, mo, &err);
+				}
+				DeleteFileW(hl::widen(cut).c_str());
+			}
 		}
 		std::string final_path = out;
 		if (ok && replace) {
@@ -690,8 +799,13 @@ void AppUI::editor_export_panel(float width)
 
 	std::string audio;
 	for (size_t i = 0; i < e.lanes.size(); i++)
-		if (e.lane_on[i])
+		if (e.lane_on[i]) {
 			audio += (audio.empty() ? "" : ", ") + e.lane_names[i];
+			if (e.lane_vol[i] != 100)
+				audio += " " + std::to_string(e.lane_vol[i]) + "%";
+		}
+	if (e.cut_mode == 0 && editor_audio_adjusted() && !audio.empty())
+		audio += " (audio re-encoded, video untouched)";
 	text_wrapped(fonts.caption, col::muted, w, "Audio: %s", audio.empty() ? "none" : audio.c_str());
 
 	double len = e.out - e.in;

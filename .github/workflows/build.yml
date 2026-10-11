@@ -75,11 +75,30 @@ jobs:
           $cm = Get-Content CMakeLists.txt -Raw
           if ($cm -match 'project\(Highlight VERSION ([0-9.]+)') { "version=$($Matches[1])" >> $env:GITHUB_OUTPUT }
 
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
+          }
+          & $iscc /Qp "/DAppVersion=${{ steps.ver.outputs.version }}" installer/highlight.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          Get-ChildItem dist/*.exe | ForEach-Object { "{0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB) }
+
       - name: Upload portable app
         uses: actions/upload-artifact@v4
         with:
           name: Highlight-windows-x64
           path: dist/Highlight
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Highlight-setup
+          path: dist/Highlight-*-setup.exe
           if-no-files-found: error
 
       # A release is published for a pushed v* tag, a manual run with a release tag,
@@ -109,13 +128,18 @@ jobs:
           tag_name: ${{ steps.rel.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Highlight ${{ steps.rel.outputs.tag }}
-          files: dist/Highlight-*-windows-x64.zip
+          files: |
+            dist/Highlight-*-setup.exe
+            dist/Highlight-*-windows-x64.zip
           generate_release_notes: true
           body: |
             ## Install
-            1. Download **`Highlight-*-windows-x64.zip`** below (under Assets).
-            2. Unzip it anywhere and run **`Highlight.exe`**. No installer needed.
-            3. Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
+            **Installer (recommended):** download **`Highlight-…-setup.exe`** below (under Assets) and run it.
+            No admin rights needed. It adds a Start menu entry, and you can uninstall it from Windows Settings → Apps.
+
+            **Portable:** download **`Highlight-…-windows-x64.zip`**, unzip it anywhere and run **`Highlight.exe`**.
+
+            Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
 
             Windows 10 2004+ (64-bit) and a DirectX 11 GPU. NVIDIA NVENC is used when available.
             If SmartScreen warns about an unknown app, click **More info → Run anyway** (the build isn't code-signed yet).

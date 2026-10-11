@@ -23,6 +23,7 @@ struct ShareRequest {
 	double start = 0; /* trim, seconds */
 	double end = -1;
 	std::vector<int> audio_streams; /* input stream indices to mix; empty = first audio stream */
+	std::vector<float> audio_gains; /* volume per entry of audio_streams (1.0 = unchanged); empty = all 1.0 */
 	std::string codec = "h264";     /* h264 | hevc | av1 */
 	int64_t target_bytes = 0;       /* 0 = best quality, no limit */
 };

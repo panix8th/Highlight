@@ -122,6 +122,9 @@ private:
 	void editor_export_panel(float width);
 	void editor_keyboard();
 	std::vector<int> editor_selected_streams(bool for_lossless) const;
+	std::vector<float> editor_selected_gains() const; /* matches editor_selected_streams(false) */
+	bool editor_audio_adjusted() const;               /* a track muted or not at 100% */
+	void editor_sync_audio();                         /* push tracks and volumes to the preview */
 	void start_trim_job(bool replace);
 
 	/* settings_pages.cpp */
@@ -184,6 +187,8 @@ private:
 		std::vector<int> lanes;      /* audio stream indices shown as lanes */
 		std::vector<std::string> lane_names;
 		std::vector<bool> lane_on;
+		std::vector<int> lane_vol;           /* percent, 0..200 */
+		std::vector<int> preview_streams;    /* what the player mixes right now */
 		std::mutex extra_mutex;
 		std::vector<std::vector<float>> peaks; /* per lane */
 		std::vector<Texture> strip;

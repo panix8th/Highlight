@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(Highlight VERSION 0.1.1 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
+project(Highlight VERSION 0.1.2 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
 
 if(NOT WIN32)
   message(FATAL_ERROR "Highlight is a Windows application. Build it on Windows (see README) or let GitHub Actions do it.")
@@ -88,6 +88,7 @@ target_include_directories(hl_common SYSTEM PUBLIC "${OBS_DEPS_DIR}/include")
 target_link_libraries(hl_common PUBLIC hl_options shell32 ole32 windowscodecs)
 
 add_library(hl_media STATIC
+  src/media/audio_mix.cpp
   src/media/av_util.cpp
   src/media/mp4_writer.cpp
   src/media/probe.cpp

@@ -460,7 +460,7 @@ bool ShareJob::init_audio_graph()
 	agraph_.reset(avfilter_graph_alloc());
 
 	AVFilterInOut *outputs = nullptr;
-	std::string desc;
+	std::string desc, pre;
 	for (size_t i = 0; i < adecs_.size(); i++) {
 		AVCodecContext *d = adecs_[i].get();
 		char layout[128] = {};
@@ -486,8 +486,18 @@ bool ShareJob::init_audio_graph()
 		io->pad_idx = 0;
 		io->next = outputs;
 		outputs = io;
-		desc += "[" + name + "]";
+
+		/* the track's own volume from the editor */
+		float gain = 1.0f;
+		for (size_t k = 0; k < req_.audio_streams.size() && k < req_.audio_gains.size(); k++)
+			if (req_.audio_streams[k] == aidx_[i])
+				gain = std::clamp(req_.audio_gains[k], 0.0f, 4.0f);
+		char vol[64];
+		snprintf(vol, sizeof(vol), "volume=%.4f:precision=float", gain);
+		pre += "[" + name + "]" + vol + "[g" + std::to_string(i) + "];";
+		desc += "[g" + std::to_string(i) + "]";
 	}
+	desc = pre + desc;
 
 	int ret = avfilter_graph_create_filter(&asink_, avfilter_get_by_name("abuffersink"), "out", nullptr, nullptr,
 					       agraph_.get());
@@ -834,7 +844,9 @@ bool run_share(const ShareRequest &req, SharePlan plan, const std::function<bool
 			return false;
 		/* Re-encoding an already small clip can make it bigger. If the original part
 		 * fits the limit and is in the same format, a lossless copy is the better result. */
-		if (same_codec && src_part > 0 && bytes > src_part &&
+		const bool volumes_changed = std::any_of(req.audio_gains.begin(), req.audio_gains.end(),
+							 [](float g) { return std::fabs(g - 1.0f) > 0.001f; });
+		if (same_codec && !volumes_changed && src_part > 0 && bytes > src_part &&
 		    (plan.target_bytes <= 0 || src_part <= plan.target_bytes)) {
 			TrimOptions opt;
 			opt.start = req.start;

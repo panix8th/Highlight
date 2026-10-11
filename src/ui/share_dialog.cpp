@@ -106,6 +106,7 @@ void AppUI::share_dialog()
 	req.start = e.in;
 	req.end = e.out >= e.info.duration - 0.01 ? -1 : e.out;
 	req.audio_streams = editor_selected_streams(false);
+	req.audio_gains = editor_selected_gains();
 	req.codec = sh.codec;
 	req.target_bytes = target_bytes_for(sh);
 	hl::media::SharePlan plan = hl::media::plan_share(e.info, req);

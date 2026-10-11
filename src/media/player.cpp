@@ -245,6 +245,17 @@ void Player::set_audio_streams(const std::vector<int> &streams)
 	cv_.notify_all();
 }
 
+void Player::set_audio_gain(int stream, float gain)
+{
+	std::lock_guard lock(mutex_);
+	for (auto &g : gains_)
+		if (g.first == stream) {
+			g.second = gain;
+			return;
+		}
+	gains_.emplace_back(stream, gain);
+}
+
 bool Player::take_frame(std::vector<uint8_t> &bgra, int &w, int &h)
 {
 	std::lock_guard lock(mutex_);
@@ -337,13 +348,22 @@ void Player::worker()
 			return;
 		mix.assign((size_t)n * 2, 0.0f);
 		tmp.resize((size_t)n * 2);
+		std::vector<std::pair<int, float>> gains;
+		{
+			std::lock_guard lock(mutex_);
+			gains = gains_;
+		}
 		for (auto &a : im->audio) {
 			if (!a->active)
 				continue;
+			float g = 1.0f;
+			for (auto &kv : gains)
+				if (kv.first == a->index)
+					g = kv.second;
 			void *ptr = tmp.data();
 			av_audio_fifo_read(a->fifo, &ptr, n);
 			for (size_t i = 0; i < mix.size(); i++)
-				mix[i] += tmp[i];
+				mix[i] += tmp[i] * g;
 		}
 		std::lock_guard lock(mutex_);
 		for (float s : mix)
