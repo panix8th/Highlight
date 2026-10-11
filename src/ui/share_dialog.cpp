@@ -159,7 +159,7 @@ void AppUI::share_dialog()
 				    0, px(1));
 			dl->AddText(fonts.mono_bold, fonts.mono_bold->FontSize, ImVec2(p.x + px(10), p.y + px(9)),
 				    sel ? col::accent_text : col::text, codecs[i].name);
-			text_ellipsis(dl, fonts.small, ImVec2(p.x + px(10), p.y + px(31)), cw - px(16), col::muted, codecs[i].desc);
+			text_ellipsis(dl, fonts.caption, ImVec2(p.x + px(10), p.y + px(31)), cw - px(16), col::muted, codecs[i].desc);
 			if (clicked) {
 				sh.codec = codecs[i].id;
 				mark_settings_dirty();
@@ -196,7 +196,7 @@ void AppUI::share_dialog()
 					   (plan.video_bitrate > 0 ? " · 2-pass on GPU" : " · constant quality");
 			dl->AddText(fonts.mono, fonts.mono->FontSize, ImVec2(x, y + px(70)), col::text, spec.c_str());
 
-			dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x, y + px(98)), col::muted, "Looks");
+			dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(x, y + px(98)), col::muted, "Looks");
 			ImU32 qc = plan.quality_level <= 1 ? col::muted : col::accent_text;
 			ImVec2 qs = measure(fonts.small_semibold, plan.quality.c_str());
 			dl->AddText(fonts.small_semibold, fonts.small_semibold->FontSize,
@@ -211,7 +211,7 @@ void AppUI::share_dialog()
 					   : plan.quality_level == 3 ? "Sharp. Fine detail holds up in fast motion."
 					   : plan.quality_level == 2 ? "Clean at this size. The resolution was lowered to keep motion smooth."
 								     : "Too long for this limit. Trim it shorter or pick a bigger limit.";
-			dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x, y + px(134)), col::muted, note, nullptr,
+			dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(x, y + px(134)), col::muted, note, nullptr,
 				    right_w - px(36));
 			ImGui::Dummy(ImVec2(right_w, ch));
 		}
@@ -223,7 +223,7 @@ void AppUI::share_dialog()
 			settings_.storage.share_cleanup_days = cleanup ? 7 : 0;
 			mark_settings_dirty();
 		}
-		text_wrapped(fonts.small, col::muted, right_w, "Your original stays exactly as it is: full size, full quality.");
+		text_wrapped(fonts.caption, col::muted, right_w, "Your original stays exactly as it is: full size, full quality.");
 		if (secondary_button("Cancel##share", ImVec2(px(110), px(48)))) {
 			ImGui::CloseCurrentPopup();
 			share_open_ = false;

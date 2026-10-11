@@ -295,7 +295,7 @@ void AppUI::clip_card(const ClipItem &c, float w)
 	float mx = p.x + px(14), my = tq.y + px(12);
 	text_ellipsis(dl, fonts.body_semibold, ImVec2(mx, my), w - px(64), col::text, c.name);
 	std::string line = c.game + " · " + clock_text(c.mtime) + " · " + hl::format_bytes(c.size);
-	text_ellipsis(dl, fonts.small, ImVec2(mx, my + px(22)), w - px(64), col::muted, line);
+	text_ellipsis(dl, fonts.caption, ImVec2(mx, my + px(22)), w - px(64), col::muted, line);
 
 	ImGui::SetCursorScreenPos(ImVec2(q.x - px(50), tq.y + px(10)));
 	if (icon_button("##more", Icon::More, px(44), "More")) {

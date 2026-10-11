@@ -32,7 +32,7 @@ struct Fonts {
 	ImFont *body_medium = nullptr;   /* Archivo Medium 14 */
 	ImFont *body_semibold = nullptr; /* Archivo SemiBold 14 */
 	ImFont *body_bold = nullptr;     /* Archivo Bold 15 */
-	ImFont *small = nullptr;         /* Archivo 12.5 */
+	ImFont *caption = nullptr;         /* Archivo 12.5 */
 	ImFont *small_semibold = nullptr;
 	ImFont *h1 = nullptr;       /* Archivo Expanded ExtraBold 30 */
 	ImFont *h2 = nullptr;       /* Archivo Bold 16 */

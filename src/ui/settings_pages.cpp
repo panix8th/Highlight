@@ -140,7 +140,7 @@ void AppUI::hotkey_row(const char *id, const char *label, const char *desc, hl::
 	const float row_h = px(58);
 	dl->AddText(fonts.body_semibold, fonts.body_semibold->FontSize, ImVec2(p.x, p.y + px(11)), col::text, label);
 	if (desc && *desc)
-		text_ellipsis(dl, fonts.small, ImVec2(p.x, p.y + px(31)), avail - px(190), col::muted, desc);
+		text_ellipsis(dl, fonts.caption, ImVec2(p.x, p.y + px(31)), avail - px(190), col::muted, desc);
 
 	bool listening = capturing_ == &key;
 	float bw = px(170);
@@ -305,7 +305,7 @@ void AppUI::clipping_page()
 		float sw = (bw - px(8)) / 2, sy = p.y + box_h - px(60);
 		auto stat_box = [&](float x, const char *label, const char *value) {
 			dl->AddRectFilled(ImVec2(x, sy), ImVec2(x + sw, sy + px(46)), col::bg2, px(8));
-			dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x + px(10), sy + px(6)), col::dim, label);
+			dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(x + px(10), sy + px(6)), col::dim, label);
 			dl->AddText(fonts.mono_bold, fonts.mono_bold->FontSize, ImVec2(x + px(10), sy + px(24)), col::text, value);
 		};
 		stat_box(bx, "Disk ring buffer", disk);
@@ -549,7 +549,7 @@ void AppUI::video_page()
 				dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(p.x + cw - ts.x - px(12), p.y + px(16)),
 					    col::accent_text, presets[i].tag);
 			}
-			dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(p.x + px(14), p.y + px(40)), col::muted,
+			dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(p.x + px(14), p.y + px(40)), col::muted,
 				    presets[i].spec);
 			dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(p.x + px(14), p.y + px(84)), col::text,
 				    presets[i].rate);
@@ -602,7 +602,7 @@ void AppUI::video_page()
 			v.preset = "custom";
 			mark_settings_dirty();
 		}
-		text(fonts.small, col::muted, "Above 60 fps is for slow-motion edits. File size grows with it.");
+		text(fonts.caption, col::muted, "Above 60 fps is for slow-motion edits. File size grows with it.");
 	}
 	end_card();
 
@@ -625,7 +625,7 @@ void AppUI::video_page()
 				v.encoder = e.id;
 				mark_settings_dirty();
 			}
-		text_wrapped(fonts.small, col::muted, ImGui::GetContentRegionAvail().x,
+		text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
 			     "If the picked encoder is not available, Highlight falls back to the best one your PC has.");
 	}
 	end_card();
@@ -653,7 +653,7 @@ void AppUI::video_page()
 				v.preset = "custom";
 				mark_settings_dirty();
 			}
-			text(fonts.small, col::muted, "Lower is sharper. 18-22 looks like the game itself.");
+			text(fonts.caption, col::muted, "Lower is sharper. 18-22 looks like the game itself.");
 		}
 		text(fonts.body_semibold, col::text, v.rate_control == "cq" ? "Bitrate cap" : "Bitrate");
 		if (slider_int("##br", &v.bitrate_kbps, 4000, 150000, "%d kbps", -1)) {
@@ -695,7 +695,7 @@ void AppUI::video_page()
 		const char *note = ci == 0   ? "Plays everywhere. Clips are written in one go, so a crash never leaves a broken file."
 				   : ci == 1 ? "Safest for long recordings."
 					     : "For editing apps that prefer QuickTime files.";
-		text_wrapped(fonts.small, col::muted, ImGui::GetContentRegionAvail().x, "%s", note);
+		text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x, "%s", note);
 	}
 	if (toggle_row("Capture HDR", "10-bit HEVC or AV1 for HDR games and monitors.", &v.hdr))
 		mark_settings_dirty();
@@ -930,7 +930,7 @@ void AppUI::overlay_page()
 
 	begin_card("##about", cols.col_w, true);
 	text(fonts.h2, col::text, "Highlight %s", HL_VERSION);
-	text_wrapped(fonts.small, col::muted, ImGui::GetContentRegionAvail().x,
+	text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
 		     "Open source under the GPL. Built on the OBS Studio capture engine and FFmpeg. "
 		     "Clips never leave your PC unless you share them.");
 	if (secondary_button("Quit Highlight completely##quit", ImVec2(-1, px(44)), Icon::Close)) {

@@ -607,7 +607,7 @@ void AppUI::draw_sidebar()
 	float bw2 = (w - pad * 2 - px(8)) / 2;
 	auto stat_box = [&](float x, const char *label, const std::string &value) {
 		dl->AddRectFilled(ImVec2(x, by), ImVec2(x + bw2, by + px(48)), col::bg0, px(8));
-		dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x + px(10), by + px(7)), col::dim, label);
+		dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(x + px(10), by + px(7)), col::dim, label);
 		dl->AddText(fonts.mono_bold, fonts.mono_bold->FontSize, ImVec2(x + px(10), by + px(25)), col::text,
 			    value.c_str());
 	};
@@ -635,7 +635,7 @@ void AppUI::draw_banner()
 	begin_card("##banner", w, true);
 	if (!status_.connected) {
 		text(fonts.h2, col::text, "Highlight capture is not running");
-		text_wrapped(fonts.small, col::muted, w - px(40),
+		text_wrapped(fonts.caption, col::muted, w - px(40),
 			     "The background process records your games. It starts with Windows and lives in the tray.");
 		if (secondary_button("Start capture##startcore", ImVec2(0, 0), Icon::Play)) {
 			launch_core();
@@ -643,8 +643,8 @@ void AppUI::draw_banner()
 		}
 	} else {
 		text(fonts.h2, col::text, "Capture could not start");
-		text_wrapped(fonts.small, col::muted, w - px(40), "%s", status_.error.c_str());
-		text_wrapped(fonts.small, col::muted, w - px(40),
+		text_wrapped(fonts.caption, col::muted, w - px(40), "%s", status_.error.c_str());
+		text_wrapped(fonts.caption, col::muted, w - px(40),
 			     "Try another encoder or capture mode below. Logs: %%LOCALAPPDATA%%\\Highlight\\logs");
 	}
 	end_card();

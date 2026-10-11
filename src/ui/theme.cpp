@@ -53,7 +53,7 @@ void setup_theme(float scale)
 	fonts.body_medium = load("Archivo-Medium.ttf", 14.0f);
 	fonts.body_semibold = load("Archivo-SemiBold.ttf", 14.0f);
 	fonts.body_bold = load("Archivo-Bold.ttf", 15.0f);
-	fonts.small = load("Archivo-Regular.ttf", 12.5f);
+	fonts.caption = load("Archivo-Regular.ttf", 12.5f);
 	fonts.small_semibold = load("Archivo-SemiBold.ttf", 12.5f);
 	fonts.h1 = load("ArchivoExpanded-ExtraBold.ttf", 30.0f);
 	fonts.h2 = load("Archivo-Bold.ttf", 16.0f);

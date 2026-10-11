@@ -690,7 +690,7 @@ void AppUI::editor_export_panel(float width)
 	for (size_t i = 0; i < e.lanes.size(); i++)
 		if (e.lane_on[i])
 			audio += (audio.empty() ? "" : ", ") + e.lane_names[i];
-	text_wrapped(fonts.small, col::muted, w, "Audio: %s", audio.empty() ? "none" : audio.c_str());
+	text_wrapped(fonts.caption, col::muted, w, "Audio: %s", audio.empty() ? "none" : audio.c_str());
 
 	double len = e.out - e.in;
 	double est = e.info.duration > 0 ? (double)e.info.file_size * len / e.info.duration : 0;
@@ -712,17 +712,17 @@ void AppUI::editor_export_panel(float width)
 		float pr = e.cut_mode == 1 ? trim_job_.progress.load() : 0.5f;
 		dl->AddRectFilled(p, ImVec2(p.x + w * pr, p.y + px(6)), col::accent, px(3));
 		ImGui::Dummy(ImVec2(w, px(8)));
-		text(fonts.small, col::muted, e.cut_mode == 1 ? "Encoding on your GPU…" : "Copying…");
+		text(fonts.caption, col::muted, e.cut_mode == 1 ? "Encoding on your GPU…" : "Copying…");
 	} else {
 		std::lock_guard lock(trim_job_.mutex);
 		if (trim_job_.done) {
 			if (trim_job_.ok) {
 				std::string name = hl::narrow(fs::path(hl::widen(trim_job_.result)).filename().wstring());
-				text_wrapped(fonts.small, col::text, w, "Saved %s", name.c_str());
+				text_wrapped(fonts.caption, col::text, w, "Saved %s", name.c_str());
 				if (secondary_button("Show in folder##trimres", ImVec2(w, px(40)), Icon::Folder))
 					show_in_folder(trim_job_.result);
 			} else {
-				text_wrapped(fonts.small, col::accent_text, w, "%s", trim_job_.error.c_str());
+				text_wrapped(fonts.caption, col::accent_text, w, "%s", trim_job_.error.c_str());
 			}
 		}
 	}
@@ -730,7 +730,7 @@ void AppUI::editor_export_panel(float width)
 	ImGui::Dummy(ImVec2(0, px(4)));
 	ImGui::Separator();
 	text(fonts.small_semibold, col::muted, "Share");
-	text_wrapped(fonts.small, col::muted, w,
+	text_wrapped(fonts.caption, col::muted, w,
 		     "Make a smaller copy for Discord and friends. The original stays full size and full quality.");
 	if (primary_button("SHARE…##share", ImVec2(w, px(48))))
 		open_share();

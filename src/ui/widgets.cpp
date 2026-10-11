@@ -441,14 +441,14 @@ bool toggle_row(const char *label, const char *desc, bool *value)
 
 	const float text_w = avail - px(64);
 	ImVec2 ls = fonts.body_medium->CalcTextSizeA(fonts.body_medium->FontSize, FLT_MAX, text_w, label);
-	ImVec2 ds = desc && *desc ? fonts.small->CalcTextSizeA(fonts.small->FontSize, FLT_MAX, text_w, desc) : ImVec2(0, 0);
+	ImVec2 ds = desc && *desc ? fonts.caption->CalcTextSizeA(fonts.caption->FontSize, FLT_MAX, text_w, desc) : ImVec2(0, 0);
 	float content_h = ls.y + (ds.y > 0 ? ds.y + px(3) : 0);
 	float row_h = std::max(px(56), content_h + px(16));
 
 	float ty = p.y + (row_h - content_h) / 2;
 	dl->AddText(fonts.body_medium, fonts.body_medium->FontSize, ImVec2(p.x, ty), col::text, label, nullptr, text_w);
 	if (ds.y > 0)
-		dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(p.x, ty + ls.y + px(3)), col::muted, desc, nullptr,
+		dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(p.x, ty + ls.y + px(3)), col::muted, desc, nullptr,
 			    text_w);
 
 	ImGui::SetCursorScreenPos(ImVec2(p.x + avail - px(52), p.y + (row_h - px(44)) / 2));
@@ -467,7 +467,7 @@ bool radio_card(const char *id, const char *title, const char *desc, bool select
 	const float tag_w = tag && *tag ? measure(fonts.mono_small, tag).x + px(12) : 0;
 	const float text_w = avail - text_x - px(14) - tag_w;
 	ImVec2 ts = fonts.body_semibold->CalcTextSizeA(fonts.body_semibold->FontSize, FLT_MAX, text_w, title);
-	ImVec2 ds = desc && *desc ? fonts.small->CalcTextSizeA(fonts.small->FontSize, FLT_MAX, text_w, desc) : ImVec2(0, 0);
+	ImVec2 ds = desc && *desc ? fonts.caption->CalcTextSizeA(fonts.caption->FontSize, FLT_MAX, text_w, desc) : ImVec2(0, 0);
 	float h = std::max(px(52), ts.y + (ds.y > 0 ? ds.y + px(3) : 0) + px(24));
 
 	ImVec2 p = ImGui::GetCursorScreenPos();
@@ -489,7 +489,7 @@ bool radio_card(const char *id, const char *title, const char *desc, bool select
 	dl->AddText(fonts.body_semibold, fonts.body_semibold->FontSize, ImVec2(p.x + text_x, ty), a(col::text), title,
 		    nullptr, text_w);
 	if (ds.y > 0)
-		dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(p.x + text_x, ty + ts.y + px(3)), a(col::muted), desc,
+		dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(p.x + text_x, ty + ts.y + px(3)), a(col::muted), desc,
 			    nullptr, text_w);
 	if (tag_w > 0)
 		dl->AddText(fonts.mono_small, fonts.mono_small->FontSize, ImVec2(q.x - tag_w, ty + px(2)),
@@ -556,7 +556,7 @@ bool hotkey_button(const char *id, const hl::Hotkey &key, bool listening, bool a
 	}
 
 	ImDrawList *dl = ImGui::GetWindowDrawList();
-	float plus_w = measure(fonts.small, "+").x + px(8);
+	float plus_w = measure(fonts.caption, "+").x + px(8);
 	float w = px(12);
 	if (listening) {
 		w += measure(fonts.small_semibold, "Press a key…").x + px(8);
@@ -581,7 +581,7 @@ bool hotkey_button(const char *id, const hl::Hotkey &key, bool listening, bool a
 		float x = p.x + px(6);
 		for (size_t i = 0; i < parts.size(); i++) {
 			if (i) {
-				dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x + px(2), p.y + px(11)), col::dim, "+");
+				dl->AddText(fonts.caption, fonts.caption->FontSize, ImVec2(x + px(2), p.y + px(11)), col::dim, "+");
 				x += plus_w;
 			}
 			bool is_main = i + 1 == parts.size();
@@ -620,7 +620,7 @@ void card_header(const char *title, const char *desc)
 	text(fonts.h2, col::text, "%s", title);
 	if (desc && *desc) {
 		ImGui::SetCursorPosY(ImGui::GetCursorPosY() - px(8));
-		text_wrapped(fonts.small, col::muted, ImGui::GetContentRegionAvail().x, "%s", desc);
+		text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x, "%s", desc);
 	}
 	ImGui::Dummy(ImVec2(0, px(2)));
 }
