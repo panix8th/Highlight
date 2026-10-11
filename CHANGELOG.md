@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+- **Share links play everywhere.** Clips recorded in HEVC (the default) or AV1 played only in some browsers; Firefox showed "No video with supported format and MIME type found". Uploads are now always H.264 video with one AAC sound track (the recorded mix) in an MP4: HEVC and AV1 clips get a web copy on your GPU first, H.264 clips go up as they are (only the mix track, no re-encode).
+- *Upload again* in a clip's menu makes a new link (for links made with 1.0.1 or 1.0.2 that do not play); the old one is listed under older links.
+- With *Upload and copy a link* on, the share copy is always H.264.
+
 ## 1.0.2
 
 Share link fixes from a review of 1.0.1:
