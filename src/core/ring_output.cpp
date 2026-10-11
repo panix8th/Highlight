@@ -195,12 +195,18 @@ bool RingOutput::on_start()
 		streams.push_back(a);
 	}
 
+	bool missing = false;
+	for (const auto &d : streams)
+		missing |= d.extradata.empty();
+	if (missing)
+		HL_INFO("Codec headers not available yet; taking them from the first packets");
 	{
 		std::lock_guard lock(mutex_);
 		streams_ = std::move(streams);
 		track_to_stream_ = std::move(track_to_stream);
 		newest_sys_ = 0;
 	}
+	missing_headers_ = missing;
 
 	active_ = true;
 	obs_output_begin_data_capture(output_, 0);
@@ -232,6 +238,13 @@ void RingOutput::on_packet(encoder_packet *pkt)
 		return;
 	}
 
+	/* Codec headers: many encoders (NVENC through libobs among them) only hand
+	 * them over once encoding has started, or only inside the first packet.
+	 * Without them every clip that does not start at that first packet is
+	 * unreadable, so keep a copy as soon as they appear. */
+	if (missing_headers_)
+		capture_headers(pkt);
+
 	RingRecord rec = {};
 	rec.size = (uint32_t)pkt->size;
 	rec.pts = pkt->pts;
@@ -251,6 +264,37 @@ void RingOutput::on_packet(encoder_packet *pkt)
 			newest_sys_ = pkt->sys_dts_usec;
 	}
 	complete_pending(false);
+}
+
+void RingOutput::capture_headers(encoder_packet *pkt)
+{
+	std::lock_guard lock(mutex_);
+	bool missing = false;
+	for (size_t i = 0; i < streams_.size(); i++) {
+		media::StreamDesc &d = streams_[i];
+		if (!d.extradata.empty())
+			continue;
+		const bool is_video = d.video;
+		const bool mine = is_video ? pkt->type == OBS_ENCODER_VIDEO
+					   : pkt->type == OBS_ENCODER_AUDIO && pkt->track_idx < track_to_stream_.size() &&
+						     (int)i == track_to_stream_[pkt->track_idx];
+		if (mine) {
+			uint8_t *extra = nullptr;
+			size_t extra_size = 0;
+			obs_encoder_t *enc = pkt->encoder;
+			if (enc && obs_encoder_get_extra_data(enc, &extra, &extra_size) && extra_size) {
+				d.extradata.assign(extra, extra + extra_size);
+				HL_INFO("Codec headers for stream %zu from the encoder (%zu bytes)", i, extra_size);
+			} else if (is_video && pkt->keyframe &&
+				   extract_codec_headers(d.codec, pkt->data, pkt->size, &d.extradata)) {
+				HL_INFO("Codec headers for stream %zu taken from the first keyframe (%zu bytes)", i,
+					d.extradata.size());
+			}
+		}
+		if (d.extradata.empty())
+			missing = true;
+	}
+	missing_headers_ = missing;
 }
 
 void RingOutput::request_clip(const ClipRequest &req)
@@ -311,7 +355,7 @@ void RingOutput::saver_loop()
 			saving_ = true;
 		}
 
-		ClipResult result = save(job);
+		ClipResult result = write_clip(ring_, job);
 		if (result.ok)
 			HL_INFO("Saved clip %s (%.1f s, %s)", result.path.c_str(), result.duration,
 				format_bytes(result.bytes).c_str());
@@ -337,122 +381,5 @@ void RingOutput::wait_for_saves(int timeout_ms)
 			  [&] { return stop_saver_ || (jobs_.empty() && !saving_); });
 }
 
-ClipResult RingOutput::save(const Job &job)
-{
-	ClipResult res;
-	res.id = job.req.id;
-	res.path = job.req.path;
-	res.game = job.req.game;
-
-	if (job.streams.empty()) {
-		res.error = "The buffer is not running";
-		return res;
-	}
-
-	const int64_t from = job.req.press_sys_usec - (int64_t)job.req.pre_seconds * 1000000;
-	const int64_t to = job.req.press_sys_usec + (int64_t)job.req.post_seconds * 1000000;
-
-	media::Mp4Writer writer;
-	bool opened = false;
-	bool failed = false;
-	std::string err;
-
-	int64_t k_pts = 0;
-	int64_t video_start_usec = 0;
-	int64_t video_start_sys = 0;
-	int64_t last_video_end = 0;
-	int32_t video_den = 1;
-
-	struct TrackState {
-		bool started = false;
-		int64_t first_dts = 0;
-		int64_t base = 0;
-	};
-	std::vector<TrackState> tracks(MAX_AUDIO_MIXES);
-
-	auto fn = [&](const RingRecord &h, const uint8_t *data) -> bool {
-		if (!opened) {
-			if (!(h.type == 0 && h.keyframe))
-				return true;
-			k_pts = h.pts;
-			video_den = h.tb_den;
-			int64_t pts_offset_usec = (h.pts - h.dts) * 1000000 / std::max(1, h.tb_den);
-			video_start_usec = h.dts_usec + pts_offset_usec;
-			video_start_sys = h.sys_dts_usec + pts_offset_usec;
-
-			std::vector<media::Chapter> chapters;
-			double clip_len = (double)(to - video_start_sys) / 1e6;
-			std::vector<double> marks;
-			for (int64_t b : job.bookmarks) {
-				double t = (double)(b - video_start_sys) / 1e6;
-				if (t > 0.05 && t < clip_len)
-					marks.push_back(t);
-			}
-			std::sort(marks.begin(), marks.end());
-			if (!marks.empty()) {
-				chapters.push_back({0.0, marks[0], "Start"});
-				for (size_t i = 0; i < marks.size(); i++) {
-					double end = i + 1 < marks.size() ? marks[i + 1] : clip_len;
-					chapters.push_back({marks[i], end, "Bookmark " + std::to_string(i + 1)});
-				}
-			}
-			res.bookmarks = (int)marks.size();
-
-			if (!writer.open(job.req.path, job.req.format, job.streams, chapters, &err)) {
-				failed = true;
-				return false;
-			}
-			opened = true;
-		}
-
-		if (h.type == 0) {
-			int64_t pts = h.pts - k_pts;
-			int64_t dts = h.dts - k_pts;
-			if (!writer.write(0, data, h.size, pts, dts, h.tb_den, h.keyframe != 0)) {
-				failed = true;
-				err = "Could not write video";
-				return false;
-			}
-			int64_t frame = std::max<int64_t>(1, h.tb_num);
-			last_video_end = std::max(last_video_end, pts + frame);
-		} else {
-			int stream = h.track < job.track_to_stream.size() ? job.track_to_stream[h.track] : -1;
-			if (stream < 0)
-				return true;
-			TrackState &t = tracks[h.track];
-			if (!t.started) {
-				int64_t rel_usec = h.dts_usec - video_start_usec;
-				if (rel_usec < 0)
-					return true;
-				t.started = true;
-				t.first_dts = h.dts;
-				t.base = (int64_t)llround((double)rel_usec * h.tb_den / 1e6);
-			}
-			int64_t ts = h.dts - t.first_dts + t.base;
-			if (!writer.write(stream, data, h.size, ts, ts, h.tb_den, true)) {
-				failed = true;
-				err = "Could not write audio";
-				return false;
-			}
-		}
-		return true;
-	};
-
-	if (!ring_.read_range(from, to, fn, &err) || failed || !opened) {
-		writer.abort();
-		res.error = err.empty() ? "Nothing to save yet" : err;
-		return res;
-	}
-
-	if (!writer.finish(&err)) {
-		res.error = err;
-		return res;
-	}
-
-	res.ok = true;
-	res.duration = (double)last_video_end / std::max(1, video_den);
-	res.bytes = writer.bytes_written();
-	return res;
-}
 
 } // namespace hl

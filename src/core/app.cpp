@@ -27,7 +27,11 @@ enum : UINT {
 	WM_APP_CALL = WM_APP + 3,
 };
 
-enum : UINT_PTR { TIMER_STATUS = 1, TIMER_CLEANUP = 2, TIMER_TEST_TOAST = 3 };
+enum : UINT_PTR { TIMER_STATUS = 1, TIMER_CLEANUP = 2, TIMER_TEST_TOAST = 3, TIMER_IDLE_STOP = 4 };
+
+/* Games drop the capture hook on alt-tab, loading screens and mode switches.
+ * Keep recording that long before treating the game as closed. */
+static constexpr UINT k_idle_grace_ms = 90 * 1000;
 
 enum : int {
 	HK_SAVE = 1,
@@ -103,6 +107,8 @@ int App::run(HINSTANCE inst, bool open_ui)
 		post([this]() {
 			game_running_ = true;
 			ever_hooked_ = true;
+			idle_grace_until_ = 0;
+			KillTimer(hwnd_, TIMER_IDLE_STOP);
 			update_buffer_state();
 			broadcast_status();
 		});
@@ -110,6 +116,8 @@ int App::run(HINSTANCE inst, bool open_ui)
 	ev.game_unhooked = [this]() {
 		post([this]() {
 			game_running_ = false;
+			idle_grace_until_ = GetTickCount64() + k_idle_grace_ms;
+			SetTimer(hwnd_, TIMER_IDLE_STOP, k_idle_grace_ms + 500, nullptr);
 			update_buffer_state();
 			broadcast_status();
 		});
@@ -250,6 +258,9 @@ LRESULT App::handle(UINT msg, WPARAM wp, LPARAM lp)
 				overlay_.set_recording(true, engine_.recording_seconds());
 		} else if (wp == TIMER_CLEANUP) {
 			cleanup_async();
+		} else if (wp == TIMER_IDLE_STOP) {
+			KillTimer(hwnd_, TIMER_IDLE_STOP);
+			update_buffer_state();
 		} else if (wp == TIMER_TEST_TOAST) {
 			KillTimer(hwnd_, TIMER_TEST_TOAST);
 			/* Shown directly: the test started its card even with banners switched off. */
@@ -470,7 +481,7 @@ void App::update_buffer_state()
 	const auto &c = settings_.clipping;
 	bool want = engine_ok_ && !paused_;
 	if (want && c.source == "game" && c.auto_start)
-		want = c.idle_stop ? game_running_ : ever_hooked_;
+		want = c.idle_stop ? (game_running_ || GetTickCount64() < idle_grace_until_) : ever_hooked_;
 
 	if (want && !engine_.buffer_active()) {
 		std::string err;

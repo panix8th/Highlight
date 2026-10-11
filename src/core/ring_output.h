@@ -4,6 +4,7 @@
  * audio encoders, appends them to the DiskRing, and turns time ranges of the
  * ring into clip files on request (with post-roll). */
 
+#include "clip_writer.h"
 #include "disk_ring.h"
 
 #include "../media/mp4_writer.h"
@@ -20,27 +21,6 @@
 #include <vector>
 
 namespace hl {
-
-struct ClipRequest {
-	uint64_t id = 0;
-	int64_t press_sys_usec = 0;
-	int pre_seconds = 60;
-	int post_seconds = 0;
-	std::string path;   /* final file path, UTF-8 */
-	std::string format; /* "mp4" | "mov" | "matroska" */
-	std::string game;
-};
-
-struct ClipResult {
-	uint64_t id = 0;
-	bool ok = false;
-	std::string path;
-	std::string game;
-	std::string error;
-	double duration = 0;
-	uint64_t bytes = 0;
-	int bookmarks = 0;
-};
 
 class RingOutput {
 public:
@@ -81,20 +61,16 @@ public:
 	void on_packet(encoder_packet *pkt);
 
 private:
-	struct Job {
-		ClipRequest req;
-		std::vector<media::StreamDesc> streams;
-		std::vector<int> track_to_stream;
-		std::vector<int64_t> bookmarks;
-	};
+	using Job = ClipJob;
 
 	void saver_loop();
-	ClipResult save(const Job &job);
+	void capture_headers(encoder_packet *pkt);
 	void complete_pending(bool all);
 
 	obs_output_t *output_ = nullptr;
 	DiskRing ring_;
 	std::atomic<bool> active_{false};
+	std::atomic<bool> missing_headers_{false};
 	bool hdr_ = false;
 
 	std::mutex mutex_;

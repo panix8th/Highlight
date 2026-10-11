@@ -42,11 +42,27 @@ jobs:
 
       - name: Configure
         shell: pwsh
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DHL_BUILD_TESTS=ON
 
       - name: Build
         shell: pwsh
         run: cmake --build build --parallel
+
+      # Replays a real H.264 + AAC recording through the rolling buffer the way libobs
+      # delivers it (codec headers only in the first packet) and checks every clip.
+      - name: Test clip saving
+        shell: pwsh
+        run: |
+          $bin = (Resolve-Path .deps/obs-deps/bin).Path
+          $env:PATH = "$bin;$env:PATH"
+          New-Item -ItemType Directory -Force -Path test-tmp | Out-Null
+          & "$bin/ffmpeg.exe" -hide_banner -loglevel error -y `
+            -f lavfi -i "testsrc2=s=640x360:r=60" -f lavfi -i "sine=f=440:r=48000" -f lavfi -i "sine=f=660:r=48000" `
+            -t 150 -map 0:v -map 1:a -map 2:a -c:v libx264 -preset ultrafast `
+            -x264-params "keyint=60:min-keyint=60:bframes=2:scenecut=0" -b:v 4M -c:a aac -b:a 128k test-tmp/src.mkv
+          if ($LASTEXITCODE -ne 0) { throw "Could not create the test recording" }
+          ./build/clip_pipeline_test.exe test-tmp/src.mkv test-tmp/work --obs-headers --speed 20
+          if ($LASTEXITCODE -ne 0) { throw "Clip pipeline test failed" }
 
       - name: Package
         shell: pwsh

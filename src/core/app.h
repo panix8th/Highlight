@@ -70,6 +70,7 @@ private:
 	bool paused_ = false;
 	bool game_running_ = false;
 	bool ever_hooked_ = false;
+	uint64_t idle_grace_until_ = 0; /* GetTickCount64: keep the buffer through brief unhooks */
 	std::map<uint64_t, std::string> pending_keys_;
 	std::atomic<bool> cleaning_{false};
 };

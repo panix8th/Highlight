@@ -724,7 +724,8 @@ void Engine::stop_buffer()
 	if (!ring_ || !ring_->active())
 		return;
 	obs_output_stop(ring_->output());
-	ring_->wait_for_saves(15000);
+	/* Clips still being written read from the buffer: let them finish first. */
+	ring_->wait_for_saves(120000);
 	ring_->close_ring();
 	HL_INFO("Buffer stopped");
 }

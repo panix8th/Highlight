@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(Highlight VERSION 0.1.0 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
+project(Highlight VERSION 0.1.1 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
 
 if(NOT WIN32)
   message(FATAL_ERROR "Highlight is a Windows application. Build it on Windows (see README) or let GitHub Actions do it.")
@@ -98,18 +98,23 @@ add_library(hl_media STATIC
   src/media/player.cpp)
 target_link_libraries(hl_media PUBLIC hl_common ffmpeg)
 
+# Rolling buffer and clip writer: no libobs, so tests can drive them directly.
+add_library(hl_clip STATIC
+  src/core/clip_writer.cpp
+  src/core/disk_ring.cpp)
+target_link_libraries(hl_clip PUBLIC hl_media)
+
 # --- highlight.exe: background capture core ---------------------------------
 add_executable(highlight WIN32
   src/core/main.cpp
   src/core/app.cpp
-  src/core/disk_ring.cpp
   src/core/engine.cpp
   src/core/hotkeys.cpp
   src/core/icons.cpp
   src/core/ring_output.cpp
   src/core/sound.cpp
   src/core/toast.cpp)
-target_link_libraries(highlight PRIVATE hl_media libobs gdiplus winmm psapi user32 gdi32 advapi32)
+target_link_libraries(highlight PRIVATE hl_clip libobs gdiplus winmm psapi user32 gdi32 advapi32)
 hl_add_resources(highlight "Highlight capture" highlight)
 
 # --- highlight-ui.exe: the window, started on demand ------------------------
@@ -146,3 +151,10 @@ add_executable(launcher WIN32 src/launcher/main.cpp)
 set_target_properties(launcher PROPERTIES OUTPUT_NAME Highlight RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/launcher")
 target_link_libraries(launcher PRIVATE hl_options)
 hl_add_resources(launcher "Highlight launcher" Highlight)
+
+# --- tests (off by default; CI turns them on) --------------------------------
+option(HL_BUILD_TESTS "Build the test programs" OFF)
+if(HL_BUILD_TESTS)
+  add_executable(clip_pipeline_test tests/clip_pipeline_test.cpp)
+  target_link_libraries(clip_pipeline_test PRIVATE hl_clip)
+endif()
