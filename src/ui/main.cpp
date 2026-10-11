@@ -14,6 +14,7 @@
 #include <windowsx.h>
 #include <objbase.h>
 #include <d3d11.h>
+#include <dxgi1_2.h>
 #include <dwmapi.h>
 
 #include <algorithm>
@@ -24,7 +25,7 @@ namespace {
 
 ID3D11Device *g_device = nullptr;
 ID3D11DeviceContext *g_ctx = nullptr;
-IDXGISwapChain *g_swap = nullptr;
+IDXGISwapChain1 *g_swap = nullptr;
 ID3D11RenderTargetView *g_rtv = nullptr;
 UINT g_resize_w = 0, g_resize_h = 0;
 ui::AppUI *g_app = nullptr;
@@ -51,25 +52,87 @@ void release_rtv()
 
 bool create_device(HWND hwnd)
 {
-	DXGI_SWAP_CHAIN_DESC sd = {};
-	sd.BufferCount = 2;
-	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = hwnd;
-	sd.SampleDesc.Count = 1;
-	sd.Windowed = TRUE;
-	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 	const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
 	D3D_FEATURE_LEVEL got;
-	HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels, 2,
-						   D3D11_SDK_VERSION, &sd, &g_swap, &g_device, &got, &g_ctx);
-	if (hr == DXGI_ERROR_UNSUPPORTED)
-		hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2,
-						   D3D11_SDK_VERSION, &sd, &g_swap, &g_device, &got, &g_ctx);
+	HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, levels, 2, D3D11_SDK_VERSION,
+				       &g_device, &got, &g_ctx);
 	if (FAILED(hr))
+		hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, levels, 2, D3D11_SDK_VERSION, &g_device,
+				       &got, &g_ctx);
+	if (FAILED(hr))
+		return false;
+
+	/* Flip model without scaling: while the window is being resized a frame that
+	 * is one step behind is shown as is, never stretched or squashed. */
+	IDXGIDevice *dxgi_dev = nullptr;
+	IDXGIAdapter *adapter = nullptr;
+	IDXGIFactory2 *factory = nullptr;
+	if (SUCCEEDED(g_device->QueryInterface(IID_PPV_ARGS(&dxgi_dev))) &&
+	    SUCCEEDED(dxgi_dev->GetAdapter(&adapter)) && SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(&factory)))) {
+		DXGI_SWAP_CHAIN_DESC1 sd = {};
+		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		sd.SampleDesc.Count = 1;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		sd.BufferCount = 2;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+		sd.Scaling = DXGI_SCALING_NONE;
+		IDXGISwapChain1 *swap = nullptr;
+		hr = factory->CreateSwapChainForHwnd(g_device, hwnd, &sd, nullptr, nullptr, &swap);
+		if (FAILED(hr)) {
+			sd.Scaling = DXGI_SCALING_STRETCH;
+			hr = factory->CreateSwapChainForHwnd(g_device, hwnd, &sd, nullptr, nullptr, &swap);
+		}
+		if (SUCCEEDED(hr))
+			g_swap = swap;
+		factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+	}
+	if (factory)
+		factory->Release();
+	if (adapter)
+		adapter->Release();
+	if (dxgi_dev)
+		dxgi_dev->Release();
+	if (!g_swap)
 		return false;
 	create_rtv();
 	return true;
+}
+
+/* One frame: resize the buffers if the window changed, run the UI, present.
+ * Also called from the window procedure while Windows runs its own resize loop,
+ * so the content follows the window edge instead of being stretched. */
+bool g_in_render = false;
+void render_frame()
+{
+	if (!g_app || !g_swap || g_in_render)
+		return;
+	g_in_render = true;
+	if (g_resize_w && g_resize_h) {
+		release_rtv();
+		g_swap->ResizeBuffers(0, g_resize_w, g_resize_h, DXGI_FORMAT_UNKNOWN, 0);
+		g_resize_w = g_resize_h = 0;
+		create_rtv();
+	}
+	if (g_rebuild_fonts) {
+		g_rebuild_fonts = false;
+		ImGui_ImplDX11_InvalidateDeviceObjects();
+		ui::setup_theme(g_pending_scale);
+		ImGui_ImplDX11_CreateDeviceObjects();
+	}
+
+	ImGui_ImplDX11_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+	g_app->frame();
+	ImGui::Render();
+
+	const float clear[4] = {0.043f, 0.047f, 0.055f, 1.0f};
+	g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
+	g_ctx->ClearRenderTargetView(g_rtv, clear);
+	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+	g_swap->Present(1, 0);
+	g_in_render = false;
 }
 
 void destroy_device()
@@ -143,11 +206,22 @@ LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 		return 0;
 	}
 	case WM_SIZE:
-		if (wp != SIZE_MINIMIZED) {
+		if (wp != SIZE_MINIMIZED && LOWORD(lp) && HIWORD(lp)) {
 			g_resize_w = LOWORD(lp);
 			g_resize_h = HIWORD(lp);
+			render_frame(); /* draw at the new size right away (live resizing) */
 		}
 		return 0;
+	case WM_PAINT: {
+		PAINTSTRUCT ps;
+		BeginPaint(hwnd, &ps);
+		EndPaint(hwnd, &ps);
+		if (!IsIconic(hwnd))
+			render_frame();
+		return 0;
+	}
+	case WM_ERASEBKGND:
+		return 1;
 	case WM_DPICHANGED: {
 		g_pending_scale = HIWORD(wp) / 96.0f;
 		g_rebuild_fonts = true;
@@ -280,30 +354,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int show)
 			continue;
 		}
 
-		if (g_resize_w && g_resize_h) {
-			release_rtv();
-			g_swap->ResizeBuffers(0, g_resize_w, g_resize_h, DXGI_FORMAT_UNKNOWN, 0);
-			g_resize_w = g_resize_h = 0;
-			create_rtv();
-		}
-		if (g_rebuild_fonts) {
-			g_rebuild_fonts = false;
-			ImGui_ImplDX11_InvalidateDeviceObjects();
-			ui::setup_theme(g_pending_scale);
-			ImGui_ImplDX11_CreateDeviceObjects();
-		}
-
-		ImGui_ImplDX11_NewFrame();
-		ImGui_ImplWin32_NewFrame();
-		ImGui::NewFrame();
-		app.frame();
-		ImGui::Render();
-
-		const float clear[4] = {0.043f, 0.047f, 0.055f, 1.0f};
-		g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
-		g_ctx->ClearRenderTargetView(g_rtv, clear);
-		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-		g_swap->Present(1, 0);
+		render_frame();
 	}
 
 	app.shutdown();
