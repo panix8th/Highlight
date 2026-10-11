@@ -193,23 +193,7 @@ bool Engine::init(const Settings &settings, Events events, std::string *err)
 	}
 	started_ = true;
 
-	static const char *modules[] = {"win-capture", "win-wasapi",  "obs-nvenc", "obs-ffmpeg",
-					"obs-filters", "obs-x264",    "obs-qsv11"};
-	for (const char *m : modules) {
-		std::string bin = std::string("../../obs-plugins/64bit/") + m + ".dll";
-		std::string data = std::string("../../data/obs-plugins/") + m;
-		obs_module_t *mod = nullptr;
-		int r = obs_open_module(&mod, bin.c_str(), data.c_str());
-		if (r != 0) {
-			HL_WARN("Could not open module %s (code %d)", m, r);
-			continue;
-		}
-		if (!obs_init_module(mod))
-			HL_WARN("Could not initialize module %s", m);
-	}
-	obs_post_load_modules();
-	RingOutput::register_type();
-
+	/* Video must exist before plugins load: win-capture checks the graphics device. */
 	if (!reset_audio()) {
 		if (err)
 			*err = "Could not start audio";
@@ -217,6 +201,9 @@ bool Engine::init(const Settings &settings, Events events, std::string *err)
 	}
 	if (!reset_video(err))
 		return false;
+
+	load_modules();
+	RingOutput::register_type();
 
 	obs_add_main_rendered_callback(rendered_cb, this);
 	rendered_cb_ = true;
@@ -264,6 +251,28 @@ void Engine::shutdown()
 	obs_shutdown();
 	started_ = false;
 	HL_INFO("libobs shut down");
+}
+
+void Engine::load_modules()
+{
+	if (modules_loaded_)
+		return;
+	modules_loaded_ = true;
+	static const char *modules[] = {"win-capture", "win-wasapi",  "obs-nvenc", "obs-ffmpeg",
+					"obs-filters", "obs-x264",    "obs-qsv11"};
+	for (const char *m : modules) {
+		std::string bin = std::string("../../obs-plugins/64bit/") + m + ".dll";
+		std::string data = std::string("../../data/obs-plugins/") + m;
+		obs_module_t *mod = nullptr;
+		int r = obs_open_module(&mod, bin.c_str(), data.c_str());
+		if (r != 0) {
+			HL_WARN("Could not open module %s (code %d)", m, r);
+			continue;
+		}
+		if (!obs_init_module(mod))
+			HL_WARN("Could not initialize module %s", m);
+	}
+	obs_post_load_modules();
 }
 
 bool Engine::reset_audio()
@@ -761,6 +770,12 @@ bool Engine::apply(const Settings &settings, std::string *err, bool force)
 		HL_WARN("Could not change the audio sample rate");
 	if (!reset_video(err))
 		return false;
+	load_modules();
+	RingOutput::register_type();
+	if (!rendered_cb_) {
+		obs_add_main_rendered_callback(rendered_cb, this);
+		rendered_cb_ = true;
+	}
 	if (!build_capture(err))
 		return false;
 	build_audio();

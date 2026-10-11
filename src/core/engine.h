@@ -68,6 +68,7 @@ public:
 	void on_recording_stopped(int code);
 
 private:
+	void load_modules();
 	bool reset_audio();
 	bool reset_video(std::string *err);
 	bool build_capture(std::string *err);
@@ -86,6 +87,7 @@ private:
 	Settings settings_;
 	Events events_;
 	bool started_ = false;
+	bool modules_loaded_ = false;
 
 	obs_scene_t *scene_ = nullptr;
 	obs_source_t *capture_ = nullptr;

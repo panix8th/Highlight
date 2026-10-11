@@ -605,7 +605,7 @@ void AppUI::draw_sidebar()
 
 	float bx = p.x + pad, by = p.y + pad + px(24);
 	float bw2 = (w - pad * 2 - px(8)) / 2;
-	auto stat = [&](float x, const char *label, const std::string &value) {
+	auto stat_box = [&](float x, const char *label, const std::string &value) {
 		dl->AddRectFilled(ImVec2(x, by), ImVec2(x + bw2, by + px(48)), col::bg0, px(8));
 		dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x + px(10), by + px(7)), col::dim, label);
 		dl->AddText(fonts.mono_bold, fonts.mono_bold->FontSize, ImVec2(x + px(10), by + px(25)), col::text,
@@ -614,8 +614,8 @@ void AppUI::draw_sidebar()
 	char ram[32], disk[32];
 	snprintf(ram, sizeof(ram), status_.connected ? "%.0f MB" : "—", status_.ram_mb);
 	snprintf(disk, sizeof(disk), status_.connected ? "%.2f GB" : "—", status_.ring_mb / 1024.0);
-	stat(bx, "RAM", ram);
-	stat(bx + bw2 + px(8), "Disk ring", disk);
+	stat_box(bx, "RAM", ram);
+	stat_box(bx + bw2 + px(8), "Disk ring", disk);
 
 	ImGui::SetCursorScreenPos(ImVec2(bx, by + px(60)));
 	std::string label = "SAVE LAST " + hl::format_duration(settings_.clipping.clip_seconds) + "##save";

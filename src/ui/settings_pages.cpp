@@ -303,13 +303,13 @@ void AppUI::clipping_page()
 		char disk[64];
 		snprintf(disk, sizeof(disk), "≈ %.0f MB", mb * 1.15);
 		float sw = (bw - px(8)) / 2, sy = p.y + box_h - px(60);
-		auto stat = [&](float x, const char *label, const char *value) {
+		auto stat_box = [&](float x, const char *label, const char *value) {
 			dl->AddRectFilled(ImVec2(x, sy), ImVec2(x + sw, sy + px(46)), col::bg2, px(8));
 			dl->AddText(fonts.small, fonts.small->FontSize, ImVec2(x + px(10), sy + px(6)), col::dim, label);
 			dl->AddText(fonts.mono_bold, fonts.mono_bold->FontSize, ImVec2(x + px(10), sy + px(24)), col::text, value);
 		};
-		stat(bx, "Disk ring buffer", disk);
-		stat(bx + sw + px(8), "RAM", "Flat · any length");
+		stat_box(bx, "Disk ring buffer", disk);
+		stat_box(bx + sw + px(8), "RAM", "Flat · any length");
 		ImGui::Dummy(ImVec2(w, box_h));
 	}
 	end_card();

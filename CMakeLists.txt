@@ -83,7 +83,8 @@ add_library(hl_common STATIC
   src/common/paths.cpp
   src/common/settings.cpp
   src/common/strings.cpp)
-target_include_directories(hl_common PUBLIC src SYSTEM PUBLIC "${OBS_DEPS_DIR}/include")
+target_include_directories(hl_common PUBLIC src)
+target_include_directories(hl_common SYSTEM PUBLIC "${OBS_DEPS_DIR}/include")
 target_link_libraries(hl_common PUBLIC hl_options shell32 ole32 windowscodecs)
 
 add_library(hl_media STATIC
