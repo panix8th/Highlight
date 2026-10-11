@@ -45,6 +45,10 @@ struct ClippingSettings {
 	bool idle_stop = true;   /* stop buffer when no game is running */
 	bool capture_cursor = false;
 	bool start_with_windows = true;
+
+	/* Executables the user captured with "Capture the game in front": picked up
+	 * automatically whenever one of them is in front. Lower-case file names. */
+	std::vector<std::string> always_capture;
 };
 
 struct HotkeySettings {
@@ -56,6 +60,7 @@ struct HotkeySettings {
 	Hotkey record;
 	Hotkey pause;
 	Hotkey push_to_talk;
+	Hotkey capture_game; /* capture the window in front (a game not picked up by itself) */
 	std::vector<SaveKey> extra;
 };
 

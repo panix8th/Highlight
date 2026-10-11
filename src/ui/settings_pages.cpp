@@ -339,25 +339,62 @@ void AppUI::clipping_page()
 			wins = list_windows();
 			listed = now_seconds();
 		}
+		/* Options for this frame only: the cached window list is never modified here
+		 * (inserting into it every frame filled the list with empty entries). */
+		std::vector<const WindowInfo *> options;
 		std::vector<std::string> items;
 		int cur = -1;
-		for (size_t i = 0; i < wins.size(); i++) {
-			items.push_back("[" + wins[i].exe + "] " + wins[i].title);
-			std::string spec = encode_part(wins[i].title) + ":" + encode_part(wins[i].cls) + ":" + encode_part(wins[i].exe);
+		for (const auto &w : wins) {
+			std::string spec = encode_part(w.title) + ":" + encode_part(w.cls) + ":" + encode_part(w.exe);
 			if (spec == c.window)
-				cur = (int)i;
+				cur = (int)options.size();
+			options.push_back(&w);
+			items.push_back("[" + w.exe + "] " + w.title);
 		}
 		if (cur < 0 && !c.window.empty()) {
-			items.insert(items.begin(), "Saved: " + c.window.substr(c.window.find_last_of(':') + 1));
+			/* the saved window is not open right now: keep showing it */
+			options.insert(options.begin(), nullptr);
+			items.insert(items.begin(), "Saved: " + c.window.substr(c.window.find_last_of(':') + 1) + " (not open)");
 			cur = 0;
-			wins.insert(wins.begin(), WindowInfo{});
 		}
-		if (combo("Window", &cur, items, -1) && cur >= 0 && !wins[cur].exe.empty()) {
-			c.window = encode_part(wins[cur].title) + ":" + encode_part(wins[cur].cls) + ":" + encode_part(wins[cur].exe);
+		if (combo("Window", &cur, items, -1) && cur >= 0 && cur < (int)options.size() && options[cur]) {
+			const WindowInfo &w = *options[cur];
+			c.window = encode_part(w.title) + ":" + encode_part(w.cls) + ":" + encode_part(w.exe);
 			mark_settings_dirty();
 		}
 	}
 	if (c.source == "game") {
+		const std::string key = settings_.hotkeys.capture_game.to_string();
+		text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
+			     "Fullscreen games are found by themselves, and known games (Minecraft and others) even in a "
+			     "window. A game not picked up? Click into it and press %s: Highlight captures it and "
+			     "remembers it for next time.",
+			     key.c_str());
+		if (!c.always_capture.empty()) {
+			text(fonts.small_semibold, col::text, "Remembered games");
+			std::string forget;
+			for (size_t i = 0; i < c.always_capture.size(); i++) {
+				ImGui::PushID((int)i);
+				const std::string &exe = c.always_capture[i];
+				const float w = ImGui::GetContentRegionAvail().x;
+				ImVec2 p = ImGui::GetCursorScreenPos();
+				ImDrawList *dl = ImGui::GetWindowDrawList();
+				dl->AddRectFilled(p, ImVec2(p.x + w, p.y + px(40)), col::bg3, px(8));
+				text_ellipsis(dl, fonts.mono_small, ImVec2(p.x + px(14), p.y + (px(40) - fonts.mono_small->FontSize) / 2),
+					      w - px(70), col::text, exe);
+				ImGui::SetCursorScreenPos(ImVec2(p.x + w - px(40), p.y));
+				if (icon_button("##forget", Icon::Close, px(40), "Forget this game", col::muted))
+					forget = exe;
+				ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + px(46)));
+				ImGui::Dummy(ImVec2(w, 0));
+				ImGui::PopID();
+			}
+			if (!forget.empty()) {
+				send({{"cmd", "forget_game"}, {"exe", forget}});
+				auto &list = c.always_capture;
+				list.erase(std::remove(list.begin(), list.end(), forget), list.end());
+			}
+		}
 		if (toggle_row("Start buffer when a game launches", "Detects running games and starts capturing on its own.",
 			       &c.auto_start))
 			mark_settings_dirty();
@@ -394,6 +431,8 @@ void AppUI::clipping_page()
 		hotkey_row("shot", "Screenshot", "Full-resolution PNG", h.screenshot);
 		hotkey_row("rec", "Start / stop full recording", "Records the whole session to disk", h.record);
 		hotkey_row("pause", "Pause / resume buffer", "Stops capturing until pressed again", h.pause);
+		hotkey_row("capture", "Capture the game in front", "For a game Highlight doesn't pick up by itself",
+			   h.capture_game);
 		for (size_t i = 0; i < h.extra.size(); i++) {
 			ImGui::PushID((int)i);
 			auto &e = h.extra[i];

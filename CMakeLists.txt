@@ -116,7 +116,7 @@ add_executable(highlight WIN32
   src/core/ring_output.cpp
   src/core/sound.cpp
   src/core/toast.cpp)
-target_link_libraries(highlight PRIVATE hl_clip libobs gdiplus winmm psapi user32 gdi32 advapi32)
+target_link_libraries(highlight PRIVATE hl_clip libobs gdiplus winmm psapi dwmapi user32 gdi32 advapi32)
 hl_add_resources(highlight "Highlight capture" highlight)
 
 # --- highlight-ui.exe: the window, started on demand ------------------------

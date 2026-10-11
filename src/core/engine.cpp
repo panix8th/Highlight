@@ -26,12 +26,19 @@ namespace fs = std::filesystem;
 /* ------------------------------------------------------------------ */
 /* helpers                                                            */
 
+/* Set when game capture reports it cannot hook (anti-cheat, elevated game, refused
+ * executable): a forced capture then switches to window capture right away. */
+static std::atomic<bool> g_hook_failed{false};
+
 static void obs_log_handler(int level, const char *format, va_list args, void *)
 {
-	if (level > LOG_INFO)
-		return; /* drop debug */
 	char buf[4096];
 	vsnprintf(buf, sizeof(buf), format, args);
+	if (strstr(buf, "[game-capture") &&
+	    (strstr(buf, "inject process failed") || strstr(buf, "could not open process") || strstr(buf, "blacklisted")))
+		g_hook_failed = true;
+	if (level > LOG_INFO)
+		return; /* drop debug */
 	log::Level l = level <= LOG_ERROR ? log::Error : level <= LOG_WARNING ? log::Warning : log::Info;
 	log::write(l, "[obs] %s", buf);
 }
@@ -404,15 +411,7 @@ bool Engine::build_capture(std::string *err)
 	}
 
 	scene_ = obs_scene_create_private("Highlight");
-	obs_sceneitem_t *item = obs_scene_add(scene_, capture_);
-	if (item) {
-		vec2 bounds;
-		bounds.x = (float)base_w_;
-		bounds.y = (float)base_h_;
-		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
-		obs_sceneitem_set_bounds_alignment(item, 0 /* OBS_ALIGN_CENTER */);
-		obs_sceneitem_set_bounds(item, &bounds);
-	}
+	capture_item_ = add_to_scene(capture_);
 	obs_set_output_source(0, obs_scene_get_source(scene_));
 
 	if (strcmp(id, "game_capture") == 0) {
@@ -448,6 +447,11 @@ bool Engine::build_capture(std::string *err)
 
 void Engine::destroy_capture()
 {
+	stop_fallback();
+	forced_hwnd_ = nullptr;
+	forced_spec_.clear();
+	forced_name_.clear();
+	capture_item_ = nullptr;
 	obs_set_output_source(0, nullptr);
 	if (capture_) {
 		signal_handler_t *sh = obs_source_get_signal_handler(capture_);
@@ -827,13 +831,7 @@ void Engine::on_hooked(const char *title, const char *cls, const char *exe)
 		game_ = name;
 		game_window_spec_ = spec;
 	}
-	if (game_audio_) {
-		obs_data_t *s = obs_data_create();
-		obs_data_set_string(s, "window", spec.c_str());
-		obs_data_set_int(s, "priority", 2);
-		obs_source_update(game_audio_, s);
-		obs_data_release(s);
-	}
+	target_game_audio(spec);
 	HL_INFO("Game detected: %s (%s)", name.c_str(), exe ? exe : "");
 	if (events_.game_hooked)
 		events_.game_hooked(name);
@@ -845,6 +843,241 @@ void Engine::on_unhooked()
 	HL_INFO("Game closed");
 	if (events_.game_unhooked)
 		events_.game_unhooked();
+}
+
+/* ------------------------------------------------------------------ */
+/* forced capture: "capture the game in front"                        */
+
+/* "priority" for finding the window (libobs window_priority): CLASS 0, TITLE 1, EXE 2.
+ * EXE survives title changes (map names, FPS counters). */
+static constexpr int k_priority_class = 0;
+static constexpr int k_priority_exe = 2;
+/* window_capture "method": Windows Graphics Capture, which works for modern
+ * games (D3D11/12, Vulkan) that BitBlt cannot see. */
+static constexpr int k_method_wgc = 2;
+/* How long the game capture hook gets before falling back to window capture. */
+static constexpr uint64_t k_hook_timeout_ms = 8000; /* the anti-cheat inject helper alone takes ~4 s */
+
+obs_sceneitem_t *Engine::add_to_scene(obs_source_t *src)
+{
+	obs_sceneitem_t *item = scene_ && src ? obs_scene_add(scene_, src) : nullptr;
+	if (item) {
+		vec2 bounds;
+		bounds.x = (float)base_w_;
+		bounds.y = (float)base_h_;
+		obs_sceneitem_set_bounds_type(item, OBS_BOUNDS_SCALE_INNER);
+		obs_sceneitem_set_bounds_alignment(item, 0 /* OBS_ALIGN_CENTER */);
+		obs_sceneitem_set_bounds(item, &bounds);
+	}
+	return item;
+}
+
+void Engine::target_game_audio(const std::string &spec)
+{
+	if (!game_audio_ || spec.empty())
+		return;
+	obs_data_t *s = obs_data_create();
+	obs_data_set_string(s, "window", spec.c_str());
+	obs_data_set_int(s, "priority", k_priority_exe);
+	obs_source_update(game_audio_, s);
+	obs_data_release(s);
+}
+
+void Engine::set_game_capture_target(const std::string &spec)
+{
+	const int priority = forced_priority_;
+	if (!capture_ || strcmp(obs_source_get_id(capture_), "game_capture") != 0)
+		return;
+	obs_data_t *s = obs_data_create();
+	if (spec.empty()) {
+		obs_data_set_string(s, "capture_mode", "any_fullscreen");
+		obs_data_set_int(s, "hook_rate", 1); /* normal: retry every 2 s */
+	} else {
+		/* priority EXE: the title may change (map names, FPS counters) */
+		obs_data_set_string(s, "capture_mode", "window");
+		obs_data_set_string(s, "window", spec.c_str());
+		obs_data_set_int(s, "priority", priority);
+		obs_data_set_int(s, "hook_rate", 3); /* fastest: retry every 0.2 s, so the fallback timer is fair */
+	}
+	obs_source_update(capture_, s);
+	obs_data_release(s);
+}
+
+bool Engine::window_info(HWND hwnd, std::string *title, std::string *cls, std::string *exe)
+{
+	if (!hwnd || !IsWindow(hwnd))
+		return false;
+	wchar_t t[512] = {}, c[256] = {};
+	GetWindowTextW(hwnd, t, 512);
+	GetClassNameW(hwnd, c, 256);
+	DWORD pid = 0;
+	GetWindowThreadProcessId(hwnd, &pid);
+	std::string e;
+	if (HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+		wchar_t path[MAX_PATH] = {};
+		DWORD size = MAX_PATH;
+		if (QueryFullProcessImageNameW(proc, 0, path, &size))
+			e = narrow(fs::path(path).filename().wstring());
+		CloseHandle(proc);
+	}
+	if (title)
+		*title = narrow(t);
+	if (cls)
+		*cls = narrow(c);
+	if (exe)
+		*exe = e;
+	return !e.empty();
+}
+
+/* Executables OBS game capture refuses to hook (plugins/win-capture/game-capture.c,
+ * blacklisted_exes in OBS 32.2.2). */
+static bool game_capture_refuses(const std::string &exe)
+{
+	static const char *const list[] = {"explorer",       "steam",       "battle.net",
+					   "galaxyclient",   "skype",       "uplay",
+					   "origin",         "devenv",      "taskmgr",
+					   "chrome",         "discord",     "firefox",
+					   "systemsettings", "applicationframehost", "cmd",
+					   "shellexperiencehost", "winstore.app", "searchui",
+					   "lockapp",        "windowsinternal.composableshell.experiences.textinput.inputapp"};
+	std::string base = to_lower(exe);
+	if (base.size() > 4 && base.substr(base.size() - 4) == ".exe")
+		base.resize(base.size() - 4);
+	for (const char *e : list)
+		if (base == e)
+			return true;
+	return false;
+}
+
+bool Engine::capture_window(HWND hwnd, std::string *name_out, std::string *exe_out, std::string *err)
+{
+	auto fail = [&](const std::string &m) {
+		if (err)
+			*err = m;
+		return false;
+	};
+	if (!started_ || !capture_ || !scene_)
+		return fail("Capture is not running");
+	if (settings_.clipping.source != "game")
+		return fail("Set \"What to capture\" to Game first");
+
+	std::string title, cls, exe;
+	window_info(hwnd, &title, &cls, &exe);
+	if (cls.empty())
+		return fail("Highlight cannot read this window");
+	/* OBS names an unreadable executable "unknown"; match such a window by class
+	 * and exact title instead (priority CLASS) */
+	const bool exe_known = !exe.empty();
+	if (!exe_known)
+		exe = "unknown";
+	const std::string spec = window_spec(title, cls, exe);
+	const std::string name = game_display_name(exe, title);
+	if (name_out)
+		*name_out = name;
+	if (exe_out)
+		*exe_out = exe;
+
+	/* Already capturing this game (found by itself or forced earlier): nothing to change. */
+	{
+		std::lock_guard lock(game_mutex_);
+		const size_t colon = game_window_spec_.find_last_of(':');
+		const std::string hooked_exe = colon == std::string::npos ? "" : game_window_spec_.substr(colon + 1);
+		if (game_hooked_ && !hooked_exe.empty() && to_lower(hooked_exe) == to_lower(encode_window_part(exe)))
+			return true;
+	}
+	if (forced_hwnd_ == hwnd && fallback_)
+		return true;
+
+	stop_fallback();
+	forced_hwnd_ = hwnd;
+	forced_spec_ = spec;
+	forced_name_ = name;
+	forced_priority_ = exe_known ? k_priority_exe : k_priority_class;
+	forced_since_ms_ = GetTickCount64();
+	g_hook_failed = false;
+	set_game_capture_target(spec);
+	HL_INFO("Forced capture of %s (%s)", name.c_str(), exe.c_str());
+	if (game_capture_refuses(exe))
+		start_fallback(); /* game capture never hooks these: use window capture right away */
+	return true;
+}
+
+void Engine::start_fallback()
+{
+	if (fallback_ || !scene_ || forced_spec_.empty())
+		return;
+	obs_data_t *s = obs_data_create();
+	obs_data_set_string(s, "window", forced_spec_.c_str());
+	obs_data_set_int(s, "priority", forced_priority_);
+	obs_data_set_int(s, "method", k_method_wgc);
+	obs_data_set_bool(s, "cursor", settings_.clipping.capture_cursor);
+	obs_data_set_bool(s, "client_area", true);
+	fallback_ = obs_source_create("window_capture", "Highlight Window Capture", s, nullptr);
+	obs_data_release(s);
+	if (!fallback_) {
+		HL_WARN("Window capture fallback could not be created");
+		return;
+	}
+	/* Added on top of game capture, which stays in the scene and keeps trying to
+	 * hook (a source that is not showing stops capturing); tick() drops this
+	 * fallback if the hook takes later. */
+	fallback_item_ = add_to_scene(fallback_);
+	target_game_audio(forced_spec_);
+	{
+		std::lock_guard lock(game_mutex_);
+		game_ = forced_name_;
+		game_window_spec_ = forced_spec_;
+	}
+	HL_INFO("Game capture did not hook %s: using window capture", forced_name_.c_str());
+	if (events_.game_hooked)
+		events_.game_hooked(forced_name_);
+}
+
+void Engine::stop_fallback()
+{
+	if (fallback_item_) {
+		obs_sceneitem_remove(fallback_item_);
+		fallback_item_ = nullptr;
+	}
+	if (fallback_) {
+		obs_source_release(fallback_);
+		fallback_ = nullptr;
+	}
+}
+
+void Engine::capture_auto()
+{
+	if (!forced_hwnd_ && !fallback_)
+		return;
+	const bool had_fallback = fallback_ != nullptr;
+	stop_fallback();
+	forced_hwnd_ = nullptr;
+	forced_spec_.clear();
+	forced_name_.clear();
+	set_game_capture_target("");
+	HL_INFO("Back to automatic game detection");
+	if (had_fallback && !game_hooked_ && events_.game_unhooked)
+		events_.game_unhooked();
+}
+
+void Engine::tick()
+{
+	if (!forced_hwnd_)
+		return;
+	if (!IsWindow(forced_hwnd_)) {
+		HL_INFO("Captured window closed");
+		capture_auto();
+		return;
+	}
+	if (game_hooked_ && fallback_) {
+		/* the hook took after all: prefer game capture */
+		HL_INFO("Game capture hooked %s, leaving window capture", forced_name_.c_str());
+		stop_fallback();
+		return;
+	}
+	if (!game_hooked_ && !fallback_ &&
+	    (g_hook_failed.exchange(false) || GetTickCount64() - forced_since_ms_ > k_hook_timeout_ms))
+		start_fallback();
 }
 
 std::string Engine::container_format() const

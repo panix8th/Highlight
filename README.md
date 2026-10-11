@@ -80,7 +80,8 @@ The banner never takes focus or blocks clicks. In **Overlay & alerts** you can m
 - Rolling buffer of the last 15 s to 5 min (or any custom length), plus optional "keep recording after the press" post-roll.
 - Separate hotkeys for a normal clip (F8), a long clip (Shift+F8), a quick clip (Alt+F8), and up to four extra save keys with their own lengths.
 - Bookmarks (F9) that show up as markers on the clip timeline, screenshots (F10, of the game or the screen when no game runs), full-session recording (Ctrl+F9), pause/resume (Ctrl+Shift+F8).
-- Game capture with auto-detection (starts when a game runs, stops on the desktop), or whole-screen or single-window capture.
+- Game capture with auto-detection (starts when a game runs, stops on the desktop), or whole-screen or single-window capture. Fullscreen games are found by themselves, and known games such as Minecraft even when they run in a window.
+- A game not picked up? Click into it and press **Ctrl+F10** (*Capture the game in front*). Highlight captures that window, falls back to Windows' own window capture if the game can't be hooked, and remembers the game for next time.
 - Animated in-game banner and sound when a clip is saved, plus a tray icon with every action.
 - If the background process ever stops, **Restart capture** in the window brings it back.
 

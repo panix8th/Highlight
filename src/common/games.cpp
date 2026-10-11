@@ -32,7 +32,9 @@ static const GameName k_games[] = {
 	{"tslgame", "PUBG"},
 	{"eldenring", "Elden Ring"},
 	{"minecraft", "Minecraft"},
-	{"javaw", "Minecraft"},
+	{"minecraft.windows", "Minecraft"}, /* Bedrock edition */
+	{"javaw", "Minecraft"},             /* Java edition (only with a Minecraft window title) */
+	{"java", "Minecraft"},
 	{"gta5", "Grand Theft Auto V"},
 	{"gta5_enhanced", "Grand Theft Auto V"},
 	{"rdr2", "Red Dead Redemption 2"},
@@ -111,6 +113,38 @@ std::string game_display_name(const std::string &executable, const std::string &
 	if (!exe.empty())
 		return strip_suffixes(exe);
 	return "Desktop";
+}
+
+static std::string exe_base(const std::string &executable)
+{
+	std::string exe = executable;
+	size_t slash = exe.find_last_of("\\/");
+	if (slash != std::string::npos)
+		exe = exe.substr(slash + 1);
+	std::string lower = to_lower(exe);
+	if (lower.size() > 4 && lower.substr(lower.size() - 4) == ".exe")
+		lower.resize(lower.size() - 4);
+	return lower;
+}
+
+bool is_known_game(const std::string &executable, const std::string &window_title)
+{
+	const std::string base = exe_base(executable);
+	if (base.empty())
+		return false;
+	if (base == "javaw" || base == "java") {
+		/* any Java app runs as javaw.exe: only Minecraft and its clients count */
+		const std::string t = to_lower(window_title);
+		static const char *titles[] = {"minecraft", "lunar client", "badlion", "feather client", "labymod"};
+		for (const char *w : titles)
+			if (t.find(w) != std::string::npos)
+				return true;
+		return false;
+	}
+	for (const auto &g : k_games)
+		if (base == g.exe)
+			return true;
+	return false;
 }
 
 } // namespace hl

@@ -662,10 +662,12 @@ bool combo(const char *label, int *current, const std::vector<std::string> &item
 	if (ImGui::BeginCombo(id.c_str(), preview)) {
 		for (int i = 0; i < (int)items.size(); i++) {
 			bool sel = i == *current;
-			if (ImGui::Selectable(items[i].c_str(), sel, 0, ImVec2(0, px(30)))) {
+			ImGui::PushID(i); /* entries may share a label (two windows with the same title) */
+			if (ImGui::Selectable(items[i].empty() ? " " : items[i].c_str(), sel, 0, ImVec2(0, px(30)))) {
 				changed = *current != i;
 				*current = i;
 			}
+			ImGui::PopID();
 			if (sel)
 				ImGui::SetItemDefaultFocus();
 		}

@@ -188,6 +188,15 @@ void AppUI::poll_core()
 			status_.buffer = msg.value("buffer", "idle");
 			status_.game = msg.value("game", "");
 			status_.game_running = msg.value("game_running", false);
+			status_.forced = msg.value("forced", false);
+			/* the core owns the remembered-games list (its hotkey adds to it) */
+			if (auto ac = msg.find("always_capture"); ac != msg.end() && ac->is_array()) {
+				std::vector<std::string> list;
+				for (const auto &e : *ac)
+					if (e.is_string())
+						list.push_back(e.get<std::string>());
+				settings_.clipping.always_capture = std::move(list);
+			}
 			status_.buffered = msg.value("buffered", 0.0);
 			status_.ram_mb = msg.value("ram_mb", 0.0);
 			status_.ring_mb = msg.value("ring_mb", 0.0);

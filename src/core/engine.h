@@ -7,6 +7,8 @@
 
 #include "../common/settings.h"
 
+#include <windows.h>
+
 #include <obs.h>
 
 #include <atomic>
@@ -54,6 +56,17 @@ public:
 	void set_push_to_talk(bool down);
 
 	std::string game() const;
+
+	/* "Capture the game in front": retargets game capture to this window and falls
+	 * back to window capture (Windows Graphics Capture) if the hook does not take.
+	 * Stays on that window until it closes, then goes back to automatic detection. */
+	bool capture_window(HWND hwnd, std::string *name, std::string *exe, std::string *err);
+	void capture_auto();
+	void tick(); /* once a second, on the app thread: fallback and window-closed checks */
+	bool forced() const { return forced_hwnd_ != nullptr; }
+	bool game_hooked() const { return game_hooked_; }
+	/* title, class and executable file name of a window (UTF-8); false if unreadable */
+	static bool window_info(HWND hwnd, std::string *title, std::string *cls, std::string *exe);
 	std::string encoder_label() const { return encoder_label_; }
 	int64_t buffered_usec() { return ring_ ? ring_->buffered_usec() : 0; }
 	uint64_t ring_bytes() const { return ring_ ? ring_->disk_bytes() : 0; }
@@ -91,6 +104,21 @@ private:
 
 	obs_scene_t *scene_ = nullptr;
 	obs_source_t *capture_ = nullptr;
+	obs_sceneitem_t *capture_item_ = nullptr;
+
+	/* forced capture (app thread only) */
+	HWND forced_hwnd_ = nullptr;
+	std::string forced_spec_;
+	std::string forced_name_;
+	uint64_t forced_since_ms_ = 0;
+	int forced_priority_ = 2; /* libobs window_priority used to find the window */
+	obs_source_t *fallback_ = nullptr; /* window_capture used when the hook fails */
+	obs_sceneitem_t *fallback_item_ = nullptr;
+	void set_game_capture_target(const std::string &spec); /* empty: any fullscreen game */
+	obs_sceneitem_t *add_to_scene(obs_source_t *src);
+	void start_fallback();
+	void stop_fallback();
+	void target_game_audio(const std::string &spec);
 	std::vector<obs_source_t *> audio_sources_; /* channel 1.. */
 	std::vector<int> audio_track_index_;        /* settings track index per audio source */
 	obs_source_t *mic_ = nullptr;

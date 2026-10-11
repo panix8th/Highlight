@@ -48,6 +48,12 @@ private:
 
 	ipc::json status_json();
 	void broadcast_status();
+	/* "Capture the game in front" (hotkey, tray, or a remembered game coming to the front) */
+	enum class CaptureReason { Hotkey, Remembered, KnownGame };
+	void capture_window(HWND hwnd, CaptureReason why);
+	static bool capture_candidate(HWND hwnd);
+	void watch_foreground(); /* once a second: remember the last game-like window, pick up remembered games */
+	void forget_game(const std::string &exe);
 	void toast(ToastKind kind, const std::string &title, const std::string &line1 = "",
 		   const std::string &line2 = "", const std::string &key = "");
 
@@ -71,6 +77,10 @@ private:
 	bool game_running_ = false;
 	bool ever_hooked_ = false;
 	uint64_t idle_grace_until_ = 0; /* GetTickCount64: keep the buffer through brief unhooks */
+	HWND last_candidate_ = nullptr;     /* last game-like window in front (for the tray menu) */
+	HWND last_auto_try_ = nullptr;      /* game window we already tried to capture by itself */
+	HWND fg_window_ = nullptr;          /* window in front, and for how many seconds */
+	int fg_seconds_ = 0;
 	std::map<uint64_t, std::string> pending_keys_;
 	std::atomic<bool> cleaning_{false};
 };

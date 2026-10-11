@@ -3,12 +3,14 @@
 #include "icons.h"
 #include "sound.h"
 
+#include "../common/games.h"
 #include "../common/library.h"
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/strings.h"
 
 #include <psapi.h>
+#include <dwmapi.h>
 #include <shellapi.h>
 
 #include <algorithm>
@@ -42,6 +44,7 @@ enum : int {
 	HK_RECORD,
 	HK_PAUSE,
 	HK_PTT,
+	HK_CAPTURE,
 	HK_EXTRA = 100,
 };
 
@@ -53,6 +56,7 @@ enum : UINT {
 	CMD_FOLDER,
 	CMD_OPEN,
 	CMD_QUIT,
+	CMD_CAPTURE,
 };
 
 static const wchar_t *k_window_class = L"HighlightCore";
@@ -254,6 +258,8 @@ LRESULT App::handle(UINT msg, WPARAM wp, LPARAM lp)
 		return 0;
 	case WM_TIMER:
 		if (wp == TIMER_STATUS) {
+			engine_.tick();
+			watch_foreground();
 			broadcast_status();
 			update_tray();
 			if (engine_.recording() && settings_.overlay.rec_indicator)
@@ -298,6 +304,9 @@ LRESULT App::handle(UINT msg, WPARAM wp, LPARAM lp)
 		case CMD_OPEN:
 			launch_ui();
 			break;
+		case CMD_CAPTURE:
+			capture_window(last_candidate_, CaptureReason::Hotkey);
+			break;
 		case CMD_QUIT:
 			PostQuitMessage(0);
 			break;
@@ -333,7 +342,7 @@ void App::apply_hotkeys()
 	std::vector<Hotkeys::Binding> b = {
 		{HK_SAVE, h.save, false},         {HK_LONG, h.save_long, false}, {HK_QUICK, h.save_quick, false},
 		{HK_BOOKMARK, h.bookmark, false}, {HK_SHOT, h.screenshot, false}, {HK_RECORD, h.record, false},
-		{HK_PAUSE, h.pause, false},
+		{HK_PAUSE, h.pause, false},       {HK_CAPTURE, h.capture_game, false},
 	};
 	if (settings_.audio.push_to_talk)
 		b.push_back({HK_PTT, h.push_to_talk, true});
@@ -383,6 +392,9 @@ void App::on_hotkey(int id, bool pressed)
 		break;
 	case HK_RECORD:
 		toggle_recording();
+		break;
+	case HK_CAPTURE:
+		capture_window(GetForegroundWindow(), CaptureReason::Hotkey);
 		break;
 	case HK_PAUSE:
 		toggle_pause();
@@ -548,7 +560,19 @@ void App::handle_ipc(const ipc::json &msg)
 	} else if (cmd == "pause_toggle") {
 		toggle_pause();
 	} else if (cmd == "reload_settings") {
-		apply_settings(Settings::load());
+		/* The remembered-games list is owned here (the hotkey adds to it while the
+		 * window may hold an older copy): keep ours, and write it back if needed. */
+		Settings s = Settings::load();
+		const bool differs = s.clipping.always_capture != settings_.clipping.always_capture;
+		s.clipping.always_capture = settings_.clipping.always_capture;
+		apply_settings(s);
+		if (differs)
+			settings_.save();
+	} else if (cmd == "forget_game") {
+		forget_game(msg.value("exe", ""));
+	} else if (cmd == "capture_auto") {
+		engine_.capture_auto();
+		broadcast_status();
 	} else if (cmd == "hotkeys_enabled") {
 		hotkeys_.set_enabled(msg.value("enabled", true));
 	} else if (cmd == "open_ui") {
@@ -595,6 +619,8 @@ ipc::json App::status_json()
 		{"encoder", engine_.encoder_label()},
 		{"height", engine_.output_height()},
 		{"fps", engine_.fps()},
+		{"always_capture", settings_.clipping.always_capture},
+		{"forced", engine_.forced()},
 		{"error", engine_ok_ ? "" : engine_error_}};
 }
 
@@ -666,6 +692,178 @@ void App::update_tray()
 	Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 
+/* ------------------------------------------------------------------ */
+/* capture the game in front                                          */
+
+/* UWP apps sit inside an ApplicationFrameHost window: the real app window is the
+ * child owned by another process (what OBS does in ms_get_uwp_actual_window). */
+static HWND real_app_window(HWND hwnd)
+{
+	wchar_t cls[64] = {};
+	if (!hwnd || !GetClassNameW(hwnd, cls, 64))
+		return hwnd;
+	if (wcscmp(cls, L"ApplicationFrameWindow") != 0 && wcscmp(cls, L"WinUIDesktopWin32WindowClass") != 0)
+		return hwnd;
+	DWORD frame_pid = 0;
+	GetWindowThreadProcessId(hwnd, &frame_pid);
+	for (HWND child = FindWindowExW(hwnd, nullptr, nullptr, nullptr); child;
+	     child = FindWindowExW(hwnd, child, nullptr, nullptr)) {
+		DWORD pid = 0;
+		GetWindowThreadProcessId(child, &pid);
+		if (pid != frame_pid)
+			return child;
+	}
+	return hwnd;
+}
+
+/* Can this top-level window be a game? (the desktop, taskbar, shell and our own
+ * windows cannot) */
+bool App::capture_candidate(HWND hwnd)
+{
+	if (!hwnd || !IsWindow(hwnd) || !IsWindowVisible(hwnd) || IsIconic(hwnd))
+		return false;
+	if (GetWindowLongW(hwnd, GWL_STYLE) & WS_CHILD)
+		return false;
+	if (GetAncestor(hwnd, GA_ROOT) != hwnd)
+		return false;
+	if (GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW)
+		return false;
+	BOOL cloaked = FALSE;
+	if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked)
+		return false;
+	RECT r = {};
+	if (!GetWindowRect(hwnd, &r) || r.right - r.left < 160 || r.bottom - r.top < 120)
+		return false;
+	DWORD pid = 0;
+	GetWindowThreadProcessId(hwnd, &pid);
+	if (pid == GetCurrentProcessId())
+		return false;
+	/* judge a UWP app by its real window, not the ApplicationFrameHost frame */
+	std::string cls, exe;
+	if (!Engine::window_info(real_app_window(hwnd), nullptr, &cls, &exe))
+		return false;
+	static const char *const shell_classes[] = {"Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",
+						    "NotifyIconOverflowWindow"};
+	for (const char *c : shell_classes)
+		if (cls == c)
+			return false;
+	/* our own processes, the shell, and the Windows parts OBS leaves out of its window
+	 * lists (libobs/util/windows/window-helpers.c, internal_microsoft_exes) */
+	static const char *const not_games[] = {
+		"highlight.exe",       "highlight-ui.exe",    "explorer.exe",        "searchhost.exe",
+		"taskmgr.exe",         "startmenuexperiencehost.exe", "applicationframehost.exe",
+		"peopleexperiencehost.exe", "shellexperiencehost.exe", "microsoft.notes.exe", "systemsettings.exe",
+		"textinputhost.exe",   "searchapp.exe",       "video.ui.exe",        "searchui.exe",
+		"lockapp.exe",         "cortana.exe",         "gamebar.exe",         "tabtip.exe",
+		"time.exe"};
+	const std::string e = to_lower(exe);
+	for (const char *n : not_games)
+		if (e == n)
+			return false;
+	if (e.rfind("windowsinternal", 0) == 0)
+		return false;
+	return true;
+}
+
+void App::capture_window(HWND hwnd, CaptureReason why)
+{
+	const bool manual = why == CaptureReason::Hotkey;
+	const std::string key = settings_.hotkeys.capture_game.to_string();
+	if (!engine_ok_) {
+		if (manual)
+			toast(ToastKind::Error, "Capture is not running", engine_error_);
+		return;
+	}
+	if (settings_.clipping.source != "game") {
+		toast(ToastKind::Info, "Capture mode is not \"Game\"",
+		      settings_.clipping.source == "display" ? "Whole screen already records every game"
+							     : "One window records the window chosen in settings",
+		      "Change it in Clipping & hotkeys → What to capture");
+		return;
+	}
+	if (!capture_candidate(hwnd)) {
+		if (manual)
+			toast(ToastKind::Error, "No game in front", "Click into the game, then press " + key + " again");
+		return;
+	}
+	hwnd = real_app_window(hwnd); /* capture the app itself, not a UWP frame */
+	std::string name, exe, err;
+	if (!engine_.capture_window(hwnd, &name, &exe, &err)) {
+		if (manual)
+			toast(ToastKind::Error, "Could not capture this window", err);
+		else
+			HL_WARN("Could not capture %s: %s", exe.c_str(), err.c_str());
+		return;
+	}
+	/* Remember games picked by hand (known games are found by name anyway). */
+	bool added = false;
+	std::string title;
+	Engine::window_info(hwnd, &title, nullptr, nullptr);
+	const std::string e = to_lower(exe);
+	auto &list = settings_.clipping.always_capture;
+	if (manual && !e.empty() && !is_known_game(exe, title) && std::find(list.begin(), list.end(), e) == list.end()) {
+		list.push_back(e);
+		settings_.save();
+		added = true;
+	}
+	/* the buffer starts when the game is hooked (or on the window capture fallback) */
+	const char *line1 = why == CaptureReason::Remembered ? "Remembered game: picked up automatically"
+			    : why == CaptureReason::KnownGame ? "Picked up automatically (game in a window)"
+			    : added ? "Highlight will pick it up by itself next time"
+				    : "Highlight picks this game up by itself";
+	toast(ToastKind::Info, "Capturing " + name, line1, exe, key);
+	broadcast_status();
+}
+
+void App::watch_foreground()
+{
+	if (!engine_ok_ || settings_.clipping.source != "game")
+		return;
+	HWND fg = GetForegroundWindow();
+	if (!capture_candidate(fg)) {
+		fg_window_ = nullptr;
+		fg_seconds_ = 0;
+		return;
+	}
+	last_candidate_ = fg;
+	if (fg != fg_window_) {
+		fg_window_ = fg;
+		fg_seconds_ = 0;
+	}
+	fg_seconds_++;
+
+	/* A remembered or known game is in front and automatic detection has not picked
+	 * it up (it runs in a window, for example): capture it. Wait a few seconds so a
+	 * fullscreen game is found the normal way first. */
+	if (paused_ || engine_.game_hooked() || engine_.forced() || fg == last_auto_try_ || fg_seconds_ < 3)
+		return;
+	std::string exe, title;
+	if (!Engine::window_info(real_app_window(fg), &title, nullptr, &exe))
+		return;
+	const auto &list = settings_.clipping.always_capture;
+	const bool remembered = std::find(list.begin(), list.end(), to_lower(exe)) != list.end();
+	if (!remembered && !is_known_game(exe, title))
+		return;
+	/* known games often run fullscreen and get hooked the normal way within a few
+	 * seconds: only step in when that has clearly not happened */
+	if (!remembered && fg_seconds_ < 8)
+		return;
+	last_auto_try_ = fg;
+	capture_window(fg, remembered ? CaptureReason::Remembered : CaptureReason::KnownGame);
+}
+
+void App::forget_game(const std::string &exe)
+{
+	auto &list = settings_.clipping.always_capture;
+	auto it = std::find(list.begin(), list.end(), to_lower(exe));
+	if (it == list.end())
+		return;
+	list.erase(it);
+	settings_.save();
+	HL_INFO("Forgot remembered game %s", exe.c_str());
+	broadcast_status();
+}
+
 void App::show_tray_menu()
 {
 	const auto &h = settings_.hotkeys;
@@ -684,6 +882,15 @@ void App::show_tray_menu()
 		    ((engine_.recording() ? L"Stop recording\t" : L"Start full recording\t") + widen(h.record.to_string()))
 			    .c_str());
 	AppendMenuW(menu, MF_STRING, CMD_PAUSE, paused_ ? L"Resume buffer" : L"Pause buffer");
+	if (settings_.clipping.source == "game") {
+		std::string title;
+		std::wstring label = L"Capture the game in front";
+		if (last_candidate_ && IsWindow(last_candidate_) && Engine::window_info(last_candidate_, &title, nullptr, nullptr) &&
+		    !title.empty())
+			label = L"Capture \"" + widen(title.size() > 40 ? title.substr(0, 40) + "…" : title) + L"\"";
+		AppendMenuW(menu, MF_STRING | (last_candidate_ && IsWindow(last_candidate_) ? 0 : MF_GRAYED), CMD_CAPTURE,
+			    (label + L"\t" + widen(h.capture_game.to_string())).c_str());
+	}
 	AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
 	AppendMenuW(menu, MF_STRING, CMD_FOLDER, L"Open clips folder");
 	AppendMenuW(menu, MF_STRING, CMD_OPEN, L"Open Highlight");

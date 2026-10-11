@@ -142,7 +142,7 @@ static json to_json(const Settings &s)
 			 {"source", c.source},                 {"display_id", c.display_id},
 			 {"window", c.window},                 {"auto_start", c.auto_start},
 			 {"idle_stop", c.idle_stop},           {"capture_cursor", c.capture_cursor},
-			 {"start_with_windows", c.start_with_windows}};
+			 {"start_with_windows", c.start_with_windows}, {"always_capture", c.always_capture}};
 
 	const auto &h = s.hotkeys;
 	json hk;
@@ -154,6 +154,7 @@ static json to_json(const Settings &s)
 	to_json(hk["record"], h.record);
 	to_json(hk["pause"], h.pause);
 	to_json(hk["push_to_talk"], h.push_to_talk);
+	to_json(hk["capture_game"], h.capture_game);
 	json extra = json::array();
 	for (const auto &e : h.extra) {
 		json k;
@@ -246,6 +247,12 @@ static void from_json(const json &j, Settings &s)
 		read(*it, "idle_stop", c.idle_stop);
 		read(*it, "capture_cursor", c.capture_cursor);
 		read(*it, "start_with_windows", c.start_with_windows);
+		if (auto ac = it->find("always_capture"); ac != it->end() && ac->is_array()) {
+			c.always_capture.clear();
+			for (const auto &e : *ac)
+				if (e.is_string() && !e.get<std::string>().empty())
+					c.always_capture.push_back(to_lower(e.get<std::string>()));
+		}
 	}
 	if (auto it = j.find("hotkeys"); it != j.end() && it->is_object()) {
 		auto &h = s.hotkeys;
@@ -257,6 +264,7 @@ static void from_json(const json &j, Settings &s)
 		read_hotkey(*it, "record", h.record);
 		read_hotkey(*it, "pause", h.pause);
 		read_hotkey(*it, "push_to_talk", h.push_to_talk);
+		read_hotkey(*it, "capture_game", h.capture_game);
 		if (auto e = it->find("extra"); e != it->end() && e->is_array()) {
 			h.extra.clear();
 			for (const auto &item : *e) {
@@ -381,6 +389,7 @@ Settings Settings::defaults()
 	s.hotkeys.record = Hotkey{VK_F9, true};
 	s.hotkeys.pause = Hotkey{VK_F8, true, true};
 	s.hotkeys.push_to_talk = Hotkey{VK_XBUTTON1};
+	s.hotkeys.capture_game = Hotkey{VK_F10, true};
 
 	s.audio.tracks = {
 		AudioTrack{"game", "Game", "default", "", true, 100},

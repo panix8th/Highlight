@@ -50,6 +50,7 @@ struct CoreStatus {
 	std::string buffer = "idle";
 	std::string game;
 	bool game_running = false;
+	bool forced = false; /* capturing a window picked with "Capture the game in front" */
 	double buffered = 0;
 	double ram_mb = 0;
 	double ring_mb = 0;
