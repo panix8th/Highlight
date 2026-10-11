@@ -447,10 +447,15 @@ bool Engine::build_capture(std::string *err)
 
 void Engine::destroy_capture()
 {
-	stop_fallback();
+	stop_fallback(false);
 	forced_hwnd_ = nullptr;
 	forced_spec_.clear();
 	forced_name_.clear();
+	game_hooked_ = false; /* the hooked/unhooked signals are disconnected below */
+	{
+		std::lock_guard lock(game_mutex_);
+		game_window_spec_.clear();
+	}
 	capture_item_ = nullptr;
 	obs_set_output_source(0, nullptr);
 	if (capture_) {
@@ -787,6 +792,14 @@ bool Engine::apply(const Settings &settings, std::string *err, bool force)
 	}
 
 	const bool was_active = buffer_active();
+	/* The capture source is rebuilt: keep a forced window, and tell the app when the
+	 * game it was capturing is no longer captured (the new source hooks it again). */
+	const HWND keep_forced = forced_hwnd_;
+	const bool had_game = game_hooked_ || fallback_on_;
+	auto game_gone = [&]() {
+		if (had_game && events_.game_unhooked)
+			events_.game_unhooked();
+	};
 	stop_buffer();
 	destroy_outputs();
 	destroy_encoders();
@@ -795,17 +808,27 @@ bool Engine::apply(const Settings &settings, std::string *err, bool force)
 
 	if (sample_rate_changed && !reset_audio())
 		HL_WARN("Could not change the audio sample rate");
-	if (!reset_video(err))
+	if (!reset_video(err)) {
+		game_gone();
 		return false;
+	}
 	load_modules();
 	RingOutput::register_type();
 	if (!rendered_cb_) {
 		obs_add_main_rendered_callback(rendered_cb, this);
 		rendered_cb_ = true;
 	}
-	if (!build_capture(err))
+	if (!build_capture(err)) {
+		game_gone();
 		return false;
+	}
 	build_audio();
+	if (keep_forced && IsWindow(keep_forced) && settings_.clipping.source == "game" &&
+	    capture_window(keep_forced, nullptr, nullptr, nullptr)) {
+		/* still forced: hooks again or falls back to window capture within seconds */
+	} else {
+		game_gone();
+	}
 	if (!build_encoders(err))
 		return false;
 	if (!build_outputs(err))
@@ -840,6 +863,8 @@ void Engine::on_hooked(const char *title, const char *cls, const char *exe)
 void Engine::on_unhooked()
 {
 	game_hooked_ = false;
+	if (fallback_on_)
+		return; /* retargeting game capture unhooks it; window capture still has the game */
 	HL_INFO("Game closed");
 	if (events_.game_unhooked)
 		events_.game_unhooked();
@@ -883,13 +908,17 @@ void Engine::target_game_audio(const std::string &spec)
 	obs_data_release(s);
 }
 
-void Engine::set_game_capture_target(const std::string &spec)
+void Engine::set_game_capture_target(const std::string &spec, bool idle)
 {
 	const int priority = forced_priority_;
 	if (!capture_ || strcmp(obs_source_get_id(capture_), "game_capture") != 0)
 		return;
 	obs_data_t *s = obs_data_create();
-	if (spec.empty()) {
+	if (idle) {
+		/* "hotkey" mode hooks only when its own hotkey is pressed, which Highlight never
+		 * binds: game capture stops retrying (and logging) a window it cannot hook */
+		obs_data_set_string(s, "capture_mode", "hotkey");
+	} else if (spec.empty()) {
 		obs_data_set_string(s, "capture_mode", "any_fullscreen");
 		obs_data_set_int(s, "hook_rate", 1); /* normal: retry every 2 s */
 	} else {
@@ -931,7 +960,7 @@ bool Engine::window_info(HWND hwnd, std::string *title, std::string *cls, std::s
 
 /* Executables OBS game capture refuses to hook (plugins/win-capture/game-capture.c,
  * blacklisted_exes in OBS 32.2.2). */
-static bool game_capture_refuses(const std::string &exe)
+bool Engine::game_capture_refuses(const std::string &exe)
 {
 	static const char *const list[] = {"explorer",       "steam",       "battle.net",
 					   "galaxyclient",   "skype",       "uplay",
@@ -988,17 +1017,23 @@ bool Engine::capture_window(HWND hwnd, std::string *name_out, std::string *exe_o
 	if (forced_hwnd_ == hwnd && fallback_)
 		return true;
 
-	stop_fallback();
+	/* no "game gone" in between: the new window is captured within seconds */
+	stop_fallback(false);
 	forced_hwnd_ = hwnd;
 	forced_spec_ = spec;
 	forced_name_ = name;
 	forced_priority_ = exe_known ? k_priority_exe : k_priority_class;
 	forced_since_ms_ = GetTickCount64();
+	forced_hidden_ticks_ = 0;
 	g_hook_failed = false;
-	set_game_capture_target(spec);
 	HL_INFO("Forced capture of %s (%s)", name.c_str(), exe.c_str());
-	if (game_capture_refuses(exe))
-		start_fallback(); /* game capture never hooks these: use window capture right away */
+	if (game_capture_refuses(exe)) {
+		/* game capture never hooks these: use window capture right away */
+		set_game_capture_target(spec, true);
+		start_fallback();
+	} else {
+		set_game_capture_target(spec);
+	}
 	return true;
 }
 
@@ -1022,6 +1057,7 @@ void Engine::start_fallback()
 	 * hook (a source that is not showing stops capturing); tick() drops this
 	 * fallback if the hook takes later. */
 	fallback_item_ = add_to_scene(fallback_);
+	fallback_on_ = true;
 	target_game_audio(forced_spec_);
 	{
 		std::lock_guard lock(game_mutex_);
@@ -1033,7 +1069,7 @@ void Engine::start_fallback()
 		events_.game_hooked(forced_name_);
 }
 
-void Engine::stop_fallback()
+void Engine::stop_fallback(bool notify)
 {
 	if (fallback_item_) {
 		obs_sceneitem_remove(fallback_item_);
@@ -1043,28 +1079,31 @@ void Engine::stop_fallback()
 		obs_source_release(fallback_);
 		fallback_ = nullptr;
 	}
+	const bool was_on = fallback_on_.exchange(false);
+	if (was_on && notify && !game_hooked_ && events_.game_unhooked)
+		events_.game_unhooked();
 }
 
 void Engine::capture_auto()
 {
 	if (!forced_hwnd_ && !fallback_)
 		return;
-	const bool had_fallback = fallback_ != nullptr;
 	stop_fallback();
 	forced_hwnd_ = nullptr;
 	forced_spec_.clear();
 	forced_name_.clear();
 	set_game_capture_target("");
 	HL_INFO("Back to automatic game detection");
-	if (had_fallback && !game_hooked_ && events_.game_unhooked)
-		events_.game_unhooked();
 }
 
 void Engine::tick()
 {
 	if (!forced_hwnd_)
 		return;
-	if (!IsWindow(forced_hwnd_)) {
+	/* Hidden for a few seconds counts as closed (games that hide their window on
+	 * exit, launchers that go to the tray). Minimized windows stay visible. */
+	forced_hidden_ticks_ = IsWindowVisible(forced_hwnd_) ? 0 : forced_hidden_ticks_ + 1;
+	if (!IsWindow(forced_hwnd_) || forced_hidden_ticks_ >= 5) {
 		HL_INFO("Captured window closed");
 		capture_auto();
 		return;
@@ -1075,9 +1114,16 @@ void Engine::tick()
 		stop_fallback();
 		return;
 	}
-	if (!game_hooked_ && !fallback_ &&
-	    (g_hook_failed.exchange(false) || GetTickCount64() - forced_since_ms_ > k_hook_timeout_ms))
+	if (game_hooked_ || fallback_)
+		return;
+	if (g_hook_failed.exchange(false)) {
+		/* injection refused (anti-cheat, elevated game): stop retrying, use window capture */
+		set_game_capture_target(forced_spec_, true);
 		start_fallback();
+	} else if (GetTickCount64() - forced_since_ms_ > k_hook_timeout_ms) {
+		/* slow to hook: window capture now, game capture keeps trying and takes over */
+		start_fallback();
+	}
 }
 
 std::string Engine::container_format() const
@@ -1170,7 +1216,7 @@ void Engine::screenshot()
 	 * taking the lock (locking it twice on one thread aborts the process). */
 	std::string path = make_path("_shot", "png");
 	/* Game capture with no game hooked has a black canvas: take the screen instead. */
-	if (settings_.clipping.source == "game" && !game_hooked_) {
+	if (settings_.clipping.source == "game" && !game_hooked_ && !fallback_on_) {
 		save_screen_grab(path);
 		return;
 	}

@@ -9,8 +9,13 @@ namespace hl {
 std::string game_display_name(const std::string &executable, const std::string &window_title);
 
 /* True for games Highlight knows by name. Used to capture them even when they run
- * in a window, which automatic (fullscreen) detection skips. Java only counts when
- * the window is Minecraft (or a known Minecraft client). */
-bool is_known_game(const std::string &executable, const std::string &window_title);
+ * in a window, which automatic (fullscreen) detection skips. Java only counts for a
+ * game window: LWJGL's window class (Minecraft and its clients, other LWJGL games)
+ * or a known Minecraft client title. */
+bool is_known_game(const std::string &executable, const std::string &window_title,
+		   const std::string &window_class);
+
+/* java.exe / javaw.exe: runs every Java app, so never remembered as a game */
+bool is_java_runtime(const std::string &executable);
 
 } // namespace hl

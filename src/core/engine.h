@@ -64,7 +64,10 @@ public:
 	void capture_auto();
 	void tick(); /* once a second, on the app thread: fallback and window-closed checks */
 	bool forced() const { return forced_hwnd_ != nullptr; }
+	HWND forced_window() const { return forced_hwnd_; }
 	bool game_hooked() const { return game_hooked_; }
+	/* OBS game capture never hooks these executables (browsers, Discord, the shell) */
+	static bool game_capture_refuses(const std::string &exe);
 	/* title, class and executable file name of a window (UTF-8); false if unreadable */
 	static bool window_info(HWND hwnd, std::string *title, std::string *cls, std::string *exe);
 	std::string encoder_label() const { return encoder_label_; }
@@ -112,12 +115,15 @@ private:
 	std::string forced_name_;
 	uint64_t forced_since_ms_ = 0;
 	int forced_priority_ = 2; /* libobs window_priority used to find the window */
+	int forced_hidden_ticks_ = 0;
 	obs_source_t *fallback_ = nullptr; /* window_capture used when the hook fails */
 	obs_sceneitem_t *fallback_item_ = nullptr;
-	void set_game_capture_target(const std::string &spec); /* empty: any fullscreen game */
+	/* empty spec: any fullscreen game; idle: stop trying to hook (the fallback captures) */
+	void set_game_capture_target(const std::string &spec, bool idle = false);
 	obs_sceneitem_t *add_to_scene(obs_source_t *src);
 	void start_fallback();
-	void stop_fallback();
+	/* notify: report the game as gone when nothing else captures it */
+	void stop_fallback(bool notify = true);
 	void target_game_audio(const std::string &spec);
 	std::vector<obs_source_t *> audio_sources_; /* channel 1.. */
 	std::vector<int> audio_track_index_;        /* settings track index per audio source */
@@ -155,6 +161,7 @@ private:
 	std::string pending_screenshot_path_;
 	std::thread shot_thread_;
 	std::atomic<bool> game_hooked_{false};
+	std::atomic<bool> fallback_on_{false}; /* read by on_unhooked (graphics thread) */
 
 	void save_screen_grab(const std::string &path); /* fallback when the canvas has no picture */
 };

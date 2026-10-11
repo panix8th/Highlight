@@ -127,13 +127,25 @@ static std::string exe_base(const std::string &executable)
 	return lower;
 }
 
-bool is_known_game(const std::string &executable, const std::string &window_title)
+bool is_java_runtime(const std::string &executable)
+{
+	const std::string base = exe_base(executable);
+	return base == "javaw" || base == "java";
+}
+
+bool is_known_game(const std::string &executable, const std::string &window_title,
+		   const std::string &window_class)
 {
 	const std::string base = exe_base(executable);
 	if (base.empty())
 		return false;
-	if (base == "javaw" || base == "java") {
-		/* any Java app runs as javaw.exe: only Minecraft and its clients count */
+	if (is_java_runtime(executable)) {
+		/* any Java app runs as javaw.exe: only game windows count. Minecraft draws
+		 * through LWJGL, whose window class is GLFW30 (LWJGL 3, Minecraft 1.13+) or
+		 * LWJGL (LWJGL 2, older versions); the title also changes with the version,
+		 * server and mod loader, so it is only a second check. */
+		if (window_class == "GLFW30" || window_class == "LWJGL")
+			return true;
 		const std::string t = to_lower(window_title);
 		static const char *titles[] = {"minecraft", "lunar client", "badlion", "feather client", "labymod"};
 		for (const char *w : titles)

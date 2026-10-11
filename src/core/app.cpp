@@ -716,6 +716,30 @@ static HWND real_app_window(HWND hwnd)
 	return hwnd;
 }
 
+/* Fills its monitor: what automatic detection ("any fullscreen application") hooks. */
+static bool covers_monitor(HWND hwnd)
+{
+	RECT r = {};
+	MONITORINFO mi = {sizeof(mi)};
+	return GetWindowRect(hwnd, &r) && GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi) &&
+	       EqualRect(&r, &mi.rcMonitor);
+}
+
+/* A fullscreen browser or video player is not a game. Automatic detection would hook
+ * it and then stay on it until it closes, so a forced game is kept instead. Chrome,
+ * Firefox and Discord are covered by Engine::game_capture_refuses. */
+static bool fullscreen_non_game(const std::string &exe)
+{
+	static const char *const list[] = {"msedge.exe", "brave.exe",          "opera.exe", "vivaldi.exe",
+					   "arc.exe",    "vlc.exe",            "mpv.exe",   "potplayermini64.exe",
+					   "potplayermini.exe", "wmplayer.exe", "mpc-hc64.exe", "spotify.exe"};
+	const std::string e = to_lower(exe);
+	for (const char *n : list)
+		if (e == n)
+			return true;
+	return false;
+}
+
 /* Can this top-level window be a game? (the desktop, taskbar, shell and our own
  * windows cannot) */
 bool App::capture_candidate(HWND hwnd)
@@ -795,13 +819,15 @@ void App::capture_window(HWND hwnd, CaptureReason why)
 			HL_WARN("Could not capture %s: %s", exe.c_str(), err.c_str());
 		return;
 	}
-	/* Remember games picked by hand (known games are found by name anyway). */
+	/* Remember games picked by hand (known games are found by name anyway). Java and
+	 * unreadable executables are never remembered: that would catch every such app. */
 	bool added = false;
-	std::string title;
-	Engine::window_info(hwnd, &title, nullptr, nullptr);
+	std::string title, cls;
+	Engine::window_info(hwnd, &title, &cls, nullptr);
 	const std::string e = to_lower(exe);
 	auto &list = settings_.clipping.always_capture;
-	if (manual && !e.empty() && !is_known_game(exe, title) && std::find(list.begin(), list.end(), e) == list.end()) {
+	if (manual && !e.empty() && e != "unknown" && !is_java_runtime(exe) && !is_known_game(exe, title, cls) &&
+	    std::find(list.begin(), list.end(), e) == list.end()) {
 		list.push_back(e);
 		settings_.save();
 		added = true;
@@ -832,24 +858,35 @@ void App::watch_foreground()
 	}
 	fg_seconds_++;
 
-	/* A remembered or known game is in front and automatic detection has not picked
-	 * it up (it runs in a window, for example): capture it. Wait a few seconds so a
-	 * fullscreen game is found the normal way first. */
-	if (paused_ || engine_.game_hooked() || engine_.forced() || fg == last_auto_try_ || fg_seconds_ < 3)
+	/* A remembered or known game is in front and is not being captured (automatic
+	 * detection skips windowed games, and a forced capture stays on its window):
+	 * capture it. Wait a few seconds so a fullscreen game is found the normal way first. */
+	if (paused_ || fg == last_auto_try_ || fg_seconds_ < 3)
 		return;
-	std::string exe, title;
-	if (!Engine::window_info(real_app_window(fg), &title, nullptr, &exe))
+	const HWND app_window = real_app_window(fg);
+	if (engine_.forced() ? app_window == engine_.forced_window() : engine_.game_hooked())
+		return;
+	std::string exe, title, cls;
+	if (!Engine::window_info(app_window, &title, &cls, &exe))
 		return;
 	const auto &list = settings_.clipping.always_capture;
 	const bool remembered = std::find(list.begin(), list.end(), to_lower(exe)) != list.end();
-	if (!remembered && !is_known_game(exe, title))
-		return;
 	/* known games often run fullscreen and get hooked the normal way within a few
 	 * seconds: only step in when that has clearly not happened */
-	if (!remembered && fg_seconds_ < 8)
+	if (fg_seconds_ < 8 && !remembered)
 		return;
-	last_auto_try_ = fg;
-	capture_window(fg, remembered ? CaptureReason::Remembered : CaptureReason::KnownGame);
+	if (remembered || is_known_game(exe, title, cls)) {
+		last_auto_try_ = fg;
+		capture_window(fg, remembered ? CaptureReason::Remembered : CaptureReason::KnownGame);
+		return;
+	}
+	/* Forced on another window while an unknown fullscreen game is in front: go back
+	 * to automatic detection, which hooks fullscreen games. */
+	if (engine_.forced() && covers_monitor(fg) && !Engine::game_capture_refuses(exe) && !fullscreen_non_game(exe)) {
+		last_auto_try_ = fg;
+		engine_.capture_auto();
+		broadcast_status();
+	}
 }
 
 void App::forget_game(const std::string &exe)
@@ -861,6 +898,11 @@ void App::forget_game(const std::string &exe)
 	list.erase(it);
 	settings_.save();
 	HL_INFO("Forgot remembered game %s", exe.c_str());
+	/* stop capturing it now too, unless it is a game Highlight knows anyway */
+	std::string forced_exe, title, cls;
+	if (engine_.forced() && Engine::window_info(engine_.forced_window(), &title, &cls, &forced_exe) &&
+	    to_lower(forced_exe) == to_lower(exe) && !is_known_game(forced_exe, title, cls))
+		engine_.capture_auto();
 	broadcast_status();
 }
 
