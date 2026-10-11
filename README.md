@@ -151,6 +151,10 @@ GitHub Actions does all of this for you (`.github/workflows/build.yml`): it buil
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. The only network access is the update check: when the window opens, Highlight asks GitHub (`api.github.com`) for the latest release. It sends no clips, settings or usage data, and you can turn it off in Settings → Overlay & alerts.
 
+## Logo
+
+The logo files (SVG and PNG: icon, mark, and logo for dark and light backgrounds) are in [`assets/brand`](assets/brand). They, the app icon and the installer pictures are all drawn from one definition by `scripts/make-brand.py`; the app draws the same shapes from `src/common/logo.cpp`.
+
 ## Licence
 
-Highlight is free software under the GNU General Public License v2.0 or later (see `LICENSE`), because it links libobs (GPL). It bundles OBS Studio components and FFmpeg (GPL builds from obs-deps), Dear ImGui (MIT), and the Archivo and JetBrains Mono fonts (SIL Open Font License).
+Highlight is free software under the GNU General Public License v2.0 or later (see `LICENSE`), because it links libobs (GPL). It bundles OBS Studio components and FFmpeg (GPL builds from obs-deps), Dear ImGui (MIT), and the Archivo, Figtree and JetBrains Mono fonts (SIL Open Font License).
