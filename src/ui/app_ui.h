@@ -96,6 +96,7 @@ private:
 	/* app_ui.cpp */
 	void poll_core();
 	void try_connect();
+	void restart_capture(); /* end a crashed/frozen capture process and start a new one */
 	void send(const hl::ipc::json &msg);
 	void draw_titlebar();
 	void draw_sidebar();

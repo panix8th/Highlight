@@ -126,7 +126,9 @@ int App::run(HINSTANCE inst, bool open_ui)
 	ev.screenshot_done = [this](bool ok, const std::string &path) {
 		post([this, ok, path]() {
 			if (ok) {
-				toast(ToastKind::Saved, "Screenshot saved", "PNG · full resolution", path,
+				const size_t slash = path.find_last_of("\\/");
+				toast(ToastKind::Saved, "Screenshot saved", "PNG · full resolution",
+				      slash == std::string::npos ? path : path.substr(slash + 1),
 				      settings_.hotkeys.screenshot.to_string());
 				if (settings_.overlay.sound)
 					play_cue(Cue::Bookmark, settings_.overlay.sound_volume);

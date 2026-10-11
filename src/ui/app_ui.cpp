@@ -6,13 +6,17 @@
 
 #include <imgui_internal.h>
 
+#include <windows.h>
+
 #include <shellapi.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <vector>
 
 namespace ui {
 
@@ -96,6 +100,56 @@ static void launch_core()
 		CloseHandle(pi.hThread);
 		CloseHandle(pi.hProcess);
 	}
+}
+
+/* A crashed or frozen capture process can keep its single-instance lock, so a
+ * plain start does nothing. End every capture process of this install in this
+ * Windows session, then start a fresh one. */
+static void restart_core()
+{
+	const std::wstring core = (hl::paths::exe_dir() / L"highlight.exe").wstring();
+	DWORD session = 0;
+	ProcessIdToSessionId(GetCurrentProcessId(), &session);
+	std::vector<HANDLE> ended;
+	HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (snap != INVALID_HANDLE_VALUE) {
+		PROCESSENTRY32W pe = {sizeof(pe)};
+		for (BOOL more = Process32FirstW(snap, &pe); more; more = Process32NextW(snap, &pe)) {
+			if (_wcsicmp(pe.szExeFile, L"highlight.exe") != 0)
+				continue;
+			DWORD s = 0;
+			if (!ProcessIdToSessionId(pe.th32ProcessID, &s) || s != session)
+				continue;
+			HANDLE h = OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+					       pe.th32ProcessID);
+			if (!h)
+				continue;
+			wchar_t path[MAX_PATH] = {};
+			DWORD n = MAX_PATH;
+			/* only our capture process: the launcher has the same name in the folder above */
+			if (QueryFullProcessImageNameW(h, 0, path, &n) && _wcsicmp(path, core.c_str()) == 0 &&
+			    TerminateProcess(h, 1)) {
+				ended.push_back(h);
+			} else {
+				CloseHandle(h);
+			}
+		}
+		CloseHandle(snap);
+	}
+	for (HANDLE h : ended) {
+		WaitForSingleObject(h, 5000);
+		CloseHandle(h);
+	}
+	launch_core();
+}
+
+void AppUI::restart_capture()
+{
+	core_.close();
+	status_.connected = false;
+	restart_core();
+	next_connect_ = now_seconds() + 1.0;
+	notice("Restarting capture…", false);
 }
 
 void AppUI::try_connect()
@@ -636,11 +690,15 @@ void AppUI::draw_banner()
 	if (!status_.connected) {
 		text(fonts.h2, col::text, "Highlight capture is not running");
 		text_wrapped(fonts.caption, col::muted, w - px(40),
-			     "The background process records your games. It starts with Windows and lives in the tray.");
+			     "The background process records your games. It starts with Windows and lives in the tray. "
+			     "If it stopped or froze, Restart capture ends it and starts it again.");
 		if (secondary_button("Start capture##startcore", ImVec2(0, 0), Icon::Play)) {
 			launch_core();
 			next_connect_ = now_seconds() + 0.8;
 		}
+		ImGui::SameLine();
+		if (secondary_button("Restart capture##restartcore", ImVec2(0, 0), Icon::Logo))
+			restart_capture();
 	} else {
 		text(fonts.h2, col::text, "Capture could not start");
 		text_wrapped(fonts.caption, col::muted, w - px(40), "%s", status_.error.c_str());

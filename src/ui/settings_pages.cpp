@@ -933,6 +933,8 @@ void AppUI::overlay_page()
 	text_wrapped(fonts.caption, col::muted, ImGui::GetContentRegionAvail().x,
 		     "Open source under the GPL. Built on the OBS Studio capture engine and FFmpeg. "
 		     "Clips never leave your PC unless you share them.");
+	if (secondary_button("Restart capture##restart", ImVec2(-1, px(44)), Icon::Logo))
+		restart_capture();
 	if (secondary_button("Quit Highlight completely##quit", ImVec2(-1, px(44)), Icon::Close)) {
 		send({{"cmd", "quit"}});
 		close_requested_ = true;

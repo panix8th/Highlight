@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(Highlight VERSION 0.1.2 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
+project(Highlight VERSION 0.1.3 DESCRIPTION "Lightweight game clipping for Windows" LANGUAGES C CXX RC)
 
 if(NOT WIN32)
   message(FATAL_ERROR "Highlight is a Windows application. Build it on Windows (see README) or let GitHub Actions do it.")
@@ -109,6 +109,7 @@ target_link_libraries(hl_clip PUBLIC hl_media)
 add_executable(highlight WIN32
   src/core/main.cpp
   src/core/app.cpp
+  src/core/crash.cpp
   src/core/engine.cpp
   src/core/hotkeys.cpp
   src/core/icons.cpp

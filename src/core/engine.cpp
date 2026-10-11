@@ -909,9 +909,12 @@ void Engine::bookmark()
 
 void Engine::screenshot()
 {
+	/* make_path() reads the game name under game_mutex_: build the path before
+	 * taking the lock (locking it twice on one thread aborts the process). */
+	std::string path = make_path("_shot", "png");
 	{
 		std::lock_guard lock(game_mutex_);
-		pending_screenshot_path_ = make_path("_shot", "png");
+		pending_screenshot_path_ = path;
 	}
 	screenshot_requested_ = true;
 }
@@ -959,8 +962,12 @@ void Engine::on_rendered()
 	if (!screenshot_requested_.exchange(false))
 		return;
 	gs_texture_t *tex = obs_get_main_texture();
-	if (!tex)
+	if (!tex) {
+		HL_WARN("Screenshot: no frame to capture yet");
+		if (events_.screenshot_done)
+			events_.screenshot_done(false, "");
 		return;
+	}
 	gs_color_format fmt = gs_texture_get_color_format(tex);
 	if (fmt != GS_RGBA && fmt != GS_BGRA && fmt != GS_BGRX) {
 		HL_WARN("Screenshot: unsupported canvas format %d", (int)fmt);
@@ -972,8 +979,12 @@ void Engine::on_rendered()
 	stage_h_ = gs_texture_get_height(tex);
 	stage_rgba_ = fmt == GS_RGBA;
 	gs_stagesurf_t *stage = gs_stagesurface_create(stage_w_, stage_h_, fmt);
-	if (!stage)
+	if (!stage) {
+		HL_WARN("Screenshot: could not create a %ux%u staging surface", stage_w_, stage_h_);
+		if (events_.screenshot_done)
+			events_.screenshot_done(false, "");
 		return;
+	}
 	gs_stage_texture(stage, tex);
 	stage_ = stage;
 	stage_frames_ = 0;

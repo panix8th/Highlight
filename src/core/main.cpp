@@ -1,6 +1,7 @@
 /* highlight.exe - the background capture process. */
 
 #include "app.h"
+#include "crash.h"
 
 #include "../common/ipc.h"
 #include "../common/log.h"
@@ -36,6 +37,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR cmdline, int)
 	SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 
 	hl::log::init("core");
+	hl::crash::install();
 	HL_INFO("Highlight %s starting%s", HL_VERSION, background ? " in the background" : "");
 
 	int code = 0;
