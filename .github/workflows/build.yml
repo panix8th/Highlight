@@ -75,32 +75,6 @@ jobs:
           $cm = Get-Content CMakeLists.txt -Raw
           if ($cm -match 'project\(Highlight VERSION ([0-9.]+)') { "version=$($Matches[1])" >> $env:GITHUB_OUTPUT }
 
-      - name: Build installer
-        shell: pwsh
-        run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) {
-            choco install innosetup -y --no-progress
-            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
-          }
-          & $iscc /Qp "/DAppVersion=${{ steps.ver.outputs.version }}" installer/highlight.iss
-          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          Get-ChildItem dist/*.exe | ForEach-Object { "{0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB) }
-
-      - name: Upload portable app
-        uses: actions/upload-artifact@v4
-        with:
-          name: Highlight-windows-x64
-          path: dist/Highlight
-          if-no-files-found: error
-
-      - name: Upload installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Highlight-setup
-          path: dist/Highlight-*-setup.exe
-          if-no-files-found: error
-
       # A release is published for a pushed v* tag, a manual run with a release tag,
       # or a push to main whose commit message contains [release] (tag v<CMake version>).
       - name: Pick release tag
@@ -113,13 +87,87 @@ jobs:
           INPUT_TAG: ${{ inputs.release }}
           MESSAGE: ${{ github.event.head_commit.message }}
           VERSION: ${{ steps.ver.outputs.version }}
+          SIGNPATH_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
         run: |
           $tag = ""
           if ($env:REF -like "refs/tags/v*") { $tag = $env:REF_NAME }
           elseif ($env:EVENT -eq "workflow_dispatch" -and $env:INPUT_TAG) { $tag = $env:INPUT_TAG }
           elseif ($env:EVENT -eq "push" -and $env:REF -eq "refs/heads/main" -and $env:MESSAGE -and $env:MESSAGE.Contains("[release]")) { $tag = "v$($env:VERSION)" }
           "tag=$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "Release tag: '$tag'"
+          # Releases are code-signed through SignPath once its API token is configured (docs/code-signing.md).
+          $sign = if ($tag -and $env:SIGNPATH_TOKEN) { "true" } else { "false" }
+          "sign=$sign" >> $env:GITHUB_OUTPUT
+          Write-Host "Release tag: '$tag', code signing: $sign"
+
+      - name: Upload portable app
+        id: upload-app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Highlight-windows-x64
+          path: dist/Highlight
+          if-no-files-found: error
+
+      - name: Sign app (SignPath)
+        if: steps.rel.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: app
+          github-artifact-id: ${{ steps.upload-app.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: dist/Highlight-signed
+
+      - name: Use the signed app
+        if: steps.rel.outputs.sign == 'true'
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist/Highlight
+          Move-Item dist/Highlight-signed dist/Highlight
+          Remove-Item dist/Highlight-*-windows-x64.zip
+          Compress-Archive -Path dist/Highlight -DestinationPath "dist/Highlight-${{ steps.ver.outputs.version }}-windows-x64.zip" -CompressionLevel Optimal
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Could not install Inno Setup" }
+          }
+          & $iscc /Qp "/DAppVersion=${{ steps.ver.outputs.version }}" installer/highlight.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          Get-ChildItem dist/*.exe | ForEach-Object { "{0} ({1:N1} MB)" -f $_.Name, ($_.Length / 1MB) }
+
+      - name: Upload installer
+        id: upload-setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: Highlight-setup
+          path: dist/Highlight-*-setup.exe
+          if-no-files-found: error
+
+      - name: Sign installer (SignPath)
+        if: steps.rel.outputs.sign == 'true'
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.upload-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: dist/setup-signed
+
+      - name: Use the signed installer
+        if: steps.rel.outputs.sign == 'true'
+        shell: pwsh
+        run: Copy-Item dist/setup-signed/*.exe dist/ -Force
 
       - name: Publish release
         if: steps.rel.outputs.tag != ''
@@ -142,4 +190,5 @@ jobs:
             Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
 
             Windows 10 2004+ (64-bit) and a DirectX 11 GPU. NVIDIA NVENC is used when available.
-            If SmartScreen warns about an unknown app, click **More info → Run anyway** (the build isn't code-signed yet).
+            Not code-signed yet: SmartScreen → **More info → Run anyway**. Windows 11 **Smart App Control** blocks unsigned apps
+            with no way to allow them; see the README ("Download") for what to do.

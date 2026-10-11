@@ -27,7 +27,9 @@ It holds the last minute (or five) of your game and saves it straight to your PC
 
 Press **F8** in game to save the last minute. Clips go to `Videos\Highlight`.
 
-> **Windows SmartScreen** may say it "protected your PC" because the app isn't code-signed yet. Click **More info → Run anyway**. You can check the source and the GitHub Actions build that produced the zip.
+> **Highlight isn't code-signed yet** (see [Code signing policy](#code-signing-policy)). Until it is:
+> - **SmartScreen** ("Windows protected your PC"): click **More info → Run anyway**.
+> - **Smart App Control** ("An Application Control policy has blocked this file"): Windows 11 blocks every unsigned app it doesn't know and offers no "allow" button. Highlight can only run once it's signed, or with Smart App Control turned off (Windows Security → App & browser control → Smart App Control). On older Windows 11 builds, turning it off can't be undone without resetting Windows.
 
 **Requirements:** Windows 10 2004 or newer (64-bit) and a DirectX 11 graphics card. NVIDIA cards (NVENC) are the main target. AMD, Intel and CPU (x264) encoders are used automatically when NVENC isn't there.
 
@@ -141,6 +143,18 @@ GitHub Actions does all of this for you (`.github/workflows/build.yml`), and pus
 - The banner shows over borderless and windowed games. Exclusive-fullscreen games hide it, but the sound still plays.
 - Game capture uses OBS's signed capture hook, which most anti-cheat systems accept. If a game blocks it, switch to whole-screen capture.
 - Automatic clipping of kills and wins isn't there yet. It needs game-specific integrations.
+
+## Code signing policy
+
+Windows releases are being set up for signing through the [SignPath Foundation](https://signpath.org), which signs open-source projects for free. Until that is active, releases are unsigned.
+
+Once active: free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- Committers and reviewers: [panix8th](https://github.com/panix8th)
+- Approvers: [panix8th](https://github.com/panix8th)
+- Only programs built by GitHub Actions from this repository's source are signed (see `.github/workflows/build.yml`). Bundled OBS Studio and FFmpeg files keep their original signatures.
+
+**Privacy:** this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 ## Licence
 
