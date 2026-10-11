@@ -49,6 +49,11 @@ HICON make_icon(IconState state, int size)
 	} else {
 		fill_logo_mark(g, fg_brush, size / 2.0f, size / 2.0f, size * logo_mark_fraction((float)size));
 		if (state == IconState::Recording) {
+			/* a ring in the tile colour keeps the dot apart from the mark's right bar */
+			Region tile_area(&box);
+			g.SetClip(&tile_area);
+			g.FillEllipse(&bg_brush, 26.5f * s, -1.0f * s, 14 * s, 14 * s);
+			g.ResetClip();
 			SolidBrush dot(Color(255, 0xEC, 0xED, 0xEF));
 			g.FillEllipse(&dot, 28 * s, 0.5f * s, 11 * s, 11 * s);
 		}

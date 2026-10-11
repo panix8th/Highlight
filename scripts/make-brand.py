@@ -282,12 +282,20 @@ def write_pngs(wm, out):
     im.convert("RGB").save(out / "social-preview.png", optimize=True)
 
 
+# Inno Setup 6.6+ picture areas at 100/125/150/200 % DPI. The tall picture keeps
+# the 164:314 shape; the small one is square. Setup picks the closest size and
+# stretches it to the area, so each file must have exactly this shape.
+WIZARD_SIZES = {"": (202, 386, 58), "-125": (269, 515, 77), "-150": (336, 643, 97), "-200": (430, 824, 124)}
+
+
 def write_wizard_images(wm):
     """Inno Setup pictures: the tall one on the welcome/finish pages, the small one in
-    the header of the other pages. 100%, 150% and 200% sizes."""
+    the header of the other pages."""
     inst = ROOT / "installer"
-    for scale in (1, 1.5, 2):
-        W, H = round(164 * scale), round(314 * scale)
+    for old in inst.glob("wizard-*.bmp"):
+        old.unlink()
+    for suffix, (W, H, small_px) in WIZARD_SIZES.items():
+        scale = W / 164  # the layout below is designed at 164 x 314
         big = Image.new("RGBA", (W * SS, H * SS), PANEL + (255,))
         tile = round(76 * scale)
         draw_tile(ImageDraw.Draw(big), (W - tile) * SS // 2, round(H * SS * 0.30), tile, SS)
@@ -300,13 +308,11 @@ def write_wizard_images(wm):
         f = ImageFont.truetype(str(TAGLINE_FONT), round(10.5 * scale))
         d.text((W / 2, baseline + 26 * scale), "Hit the key.", font=f, fill=MUTED, anchor="mm")
         d.text((W / 2, baseline + 41 * scale), "Keep the moment.", font=f, fill=MUTED, anchor="mm")
-        suffix = "" if scale == 1 else f"-{int(scale * 100)}"
         img.convert("RGB").save(inst / f"wizard-image{suffix}.bmp")
 
-        s = round(55 * scale), round(58 * scale)
-        small = Image.new("RGBA", s, (255, 255, 255, 255))
-        icon = icon_image(round(48 * scale))
-        small.alpha_composite(icon, ((s[0] - icon.width) // 2, (s[1] - icon.height) // 2))
+        small = Image.new("RGBA", (small_px, small_px), (255, 255, 255, 255))
+        icon = icon_image(round(small_px * 48 / 58))
+        small.alpha_composite(icon, ((small_px - icon.width) // 2, (small_px - icon.height) // 2))
         small.convert("RGB").save(inst / f"wizard-small{suffix}.bmp")
 
 

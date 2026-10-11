@@ -186,9 +186,10 @@ float brand_lockup(ImDrawList *dl, ImVec2 pos, float icon_size, ImFont *font)
 	/* as in the logo artwork: the lowercase letters (x-height) are centred on the mark */
 	const ImFontGlyph *x = font->FindGlyph('x');
 	const float mid = x ? (x->Y0 + x->Y1) / 2 : font->FontSize / 2;
-	ImVec2 at(pos.x + icon_size * 1.45f, std::round(pos.y + icon_size / 2 - mid));
-	/* drawn letter by letter: the wordmark is set slightly tighter (-0.02 em) */
-	const float track = -0.02f * font->FontSize;
+	ImVec2 at(std::floor(pos.x + icon_size * 1.45f), std::round(pos.y + icon_size / 2 - mid));
+	/* The wordmark is set slightly tighter (-0.02 em), in whole pixels: text positions
+	 * are truncated to pixels, so a fractional step would make the gaps uneven. */
+	const float track = std::round(-0.02f * font->FontSize);
 	for (const char *ch = word; *ch; ch++) {
 		dl->AddText(font, font->FontSize, at, col::text, ch, ch + 1);
 		const ImFontGlyph *g = font->FindGlyph((ImWchar)*ch);

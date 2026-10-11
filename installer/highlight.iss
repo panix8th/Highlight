@@ -32,9 +32,9 @@ UninstallDisplayName=Highlight
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
-; logo pictures (scripts/make-brand.py), 100/150/200 % for high-DPI screens
-WizardImageFile=wizard-image.bmp,wizard-image-150.bmp,wizard-image-200.bmp
-WizardSmallImageFile=wizard-small.bmp,wizard-small-150.bmp,wizard-small-200.bmp
+; logo pictures (scripts/make-brand.py), sized for 100/125/150/200 % DPI
+WizardImageFile=wizard-image.bmp,wizard-image-125.bmp,wizard-image-150.bmp,wizard-image-200.bmp
+WizardSmallImageFile=wizard-small.bmp,wizard-small-125.bmp,wizard-small-150.bmp,wizard-small-200.bmp
 CloseApplications=no
 VersionInfoVersion={#AppVersion}
 VersionInfoProductName=Highlight
