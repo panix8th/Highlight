@@ -110,7 +110,10 @@ void AppUI::share_dialog()
 	req.end = e.out >= e.info.duration - 0.01 ? -1 : e.out;
 	req.audio_streams = editor_selected_streams(false);
 	req.audio_gains = editor_selected_gains();
-	req.codec = sh.codec;
+	/* a link has to play everywhere (browsers, Discord, phones): uploads are always H.264 */
+	const bool links_ready = R2Config::from(sh).missing().empty();
+	const bool web = links_ready && sh.upload_link;
+	req.codec = web ? "h264" : sh.codec;
 	req.target_bytes = target_bytes_for(sh);
 	hl::media::SharePlan plan = hl::media::plan_share(e.info, req);
 
@@ -157,7 +160,7 @@ void AppUI::share_dialog()
 			bool clicked = ImGui::InvisibleButton("##c", ImVec2(cw, px(56)));
 			bool hov = ImGui::IsItemHovered();
 			ImGui::PopID();
-			bool sel = sh.codec == codecs[i].id;
+			bool sel = req.codec == codecs[i].id;
 			dl->AddRectFilled(p, ImVec2(p.x + cw, p.y + px(56)), sel ? col::bg3 : col::bg0, px(10));
 			dl->AddRect(p, ImVec2(p.x + cw, p.y + px(56)), sel ? col::accent : (hov ? col::key_border : col::line), px(10),
 				    0, px(1));
@@ -169,6 +172,9 @@ void AppUI::share_dialog()
 				mark_settings_dirty();
 			}
 		}
+		if (web)
+			text_wrapped(fonts.caption, col::muted, left_w,
+				     "Uploads use H.264, so the link plays in every browser, in Discord and on phones.");
 		ImGui::EndChild();
 		ImGui::PopItemWidth();
 		ImGui::EndGroup();
@@ -219,7 +225,6 @@ void AppUI::share_dialog()
 				    right_w - px(36));
 			ImGui::Dummy(ImVec2(right_w, ch));
 		}
-		const bool links_ready = R2Config::from(sh).missing().empty();
 		if (links_ready && toggle_row("Upload and copy a link",
 					      "To your Cloudflare storage. The link plays in any browser and right in Discord.",
 					      &sh.upload_link))

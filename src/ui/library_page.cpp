@@ -362,6 +362,9 @@ void AppUI::clip_menu()
 			if (!link.empty()) {
 				if (entry("Copy link", Icon::Share))
 					copy_link(link);
+				/* a new link; the old one stays online as an older link (Settings > Share links) */
+				if (entry(uploading ? "Uploading…" : "Upload again", Icon::Share) && !uploading)
+					start_upload(item.path, item.path, item.name);
 			} else if (entry(uploading ? "Uploading…" : "Upload & copy link", Icon::Share) && !uploading) {
 				start_upload(item.path, item.path, item.name);
 			}

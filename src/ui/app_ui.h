@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -75,7 +76,7 @@ struct Job {
 	std::string error;
 	int64_t bytes = 0;
 	/* share links */
-	std::atomic<int> phase{0}; /* share: 0 encoding, 1 uploading; upload job: 0 upload, 2 delete, 3 delete older */
+	std::atomic<int> phase{0}; /* share: 0 encoding, 1 uploading; upload job: 0 upload, 2 delete, 3 delete older, 4 web copy */
 	std::string source;        /* clip the upload belongs to */
 	std::string key, link;     /* object name and public link once uploaded */
 	std::string host, bucket;  /* where it went */
@@ -154,6 +155,9 @@ private:
 	/* share links (links.cpp; the R2 client is r2.cpp) */
 	void links_page(); /* settings_pages.cpp */
 	bool start_upload(const std::string &file, const std::string &clip_path, const std::string &name);
+	/* worker thread: makes sure the video plays in browsers and Discord (H.264 + AAC in MP4) */
+	bool prepare_for_web(const std::string &file, std::string *upload, bool *temp,
+			     const std::function<bool(float)> &progress, std::string *err);
 	void start_unlink(const std::string &clip_path);
 	void start_delete_older(); /* links of deleted clips and replaced uploads */
 	void record_upload(const std::string &clip_path, const hl::Upload &u);

@@ -6,6 +6,7 @@
 
 #include "../common/strings.h"
 #include "../media/remux.h"
+#include "../media/share.h"
 
 #include <algorithm>
 #include <ctime>
@@ -35,11 +36,10 @@ bool AppUI::start_upload(const std::string &file, const std::string &clip_path, 
 		notice("Set up share links first: your Cloudflare storage is not connected yet.");
 		return false;
 	}
-	/* MKV and MOV links would download instead of playing in browsers and Discord:
-	 * those clips go up as MP4 (same video and audio, new container) */
 	const std::string ext = hl::to_lower(hl::narrow(fs::path(hl::widen(file)).extension().wstring()));
-	const bool to_mp4 = ext == ".mkv" || ext == ".mov";
-	const std::string key = r2_new_key(name, to_mp4 ? name + ".mp4" : file);
+	const bool image = ext == ".png";
+	/* every video goes up as MP4 (see prepare_for_web) */
+	const std::string key = r2_new_key(name, image ? file : name + ".mp4");
 	upload_job_.join();
 	upload_job_.progress = 0;
 	upload_job_.cancel = false;
@@ -58,30 +58,23 @@ bool AppUI::start_upload(const std::string &file, const std::string &clip_path, 
 		upload_job_.handled = false;
 	}
 	upload_name_ = name;
-	upload_job_.thread = std::thread([this, cfg, file, key, to_mp4]() {
+	upload_job_.thread = std::thread([this, cfg, file, key, image]() {
+		auto progress = [this](float p) {
+			upload_job_.progress = p;
+			return !upload_job_.cancel.load();
+		};
 		std::string err, upload = file;
-		bool ok = true;
-		if (to_mp4) {
-			wchar_t tmp[MAX_PATH] = {};
-			GetTempPathW(MAX_PATH, tmp);
-			upload = hl::narrow((fs::path(tmp) / hl::widen("Highlight-upload-" + std::to_string(GetCurrentProcessId()) +
-								       ".mp4"))
-						    .wstring());
-			ok = hl::media::remux(file, upload, "mp4", &err);
-			if (!ok)
-				err = "Could not prepare the clip as MP4: " + err;
+		bool ok = true, temp = false;
+		if (!image) {
+			ok = prepare_for_web(file, &upload, &temp, progress, &err);
+			upload_job_.phase = 0;
+			upload_job_.progress = 0;
 		}
 		std::error_code ec;
 		const uint64_t bytes = fs::file_size(hl::widen(upload), ec);
 		if (ok)
-			ok = r2_upload(
-				cfg, upload, key,
-				[this](float p) {
-					upload_job_.progress = p;
-					return !upload_job_.cancel.load();
-				},
-				&err);
-		if (to_mp4)
+			ok = r2_upload(cfg, upload, key, progress, &err);
+		if (temp)
 			fs::remove(hl::widen(upload), ec);
 		std::lock_guard lock(upload_job_.mutex);
 		upload_job_.ok = ok;
@@ -92,6 +85,67 @@ bool AppUI::start_upload(const std::string &file, const std::string &clip_path, 
 		upload_job_.running = false;
 	});
 	return true;
+}
+
+bool AppUI::prepare_for_web(const std::string &file, std::string *upload, bool *temp,
+			    const std::function<bool(float)> &progress, std::string *err)
+{
+	/* Every browser, Discord and phones play H.264 video with AAC sound in an MP4.
+	 * Highlight records HEVC by default, which Firefox, Discord and many phones cannot
+	 * play: such clips (and AV1, Opus sound) get a web copy first, like Medal makes. */
+	const hl::media::MediaInfo info = hl::media::probe(file);
+	if (!info.ok) {
+		*err = "The clip could not be read: " + info.error;
+		return false;
+	}
+	const bool h264 = hl::to_lower(info.video_codec) == "h264";
+	bool aac = true;
+	for (const auto &a : info.audio)
+		aac = aac && hl::to_lower(a.codec) == "aac";
+	/* Browsers play only the first sound track of a file: a link carries one track,
+	 * the recorded mix if there is one, otherwise every track mixed together. */
+	int mix = -1;
+	for (const auto &a : info.audio)
+		if (a.title == "Mix")
+			mix = a.index;
+	const bool one_track = info.audio.size() <= 1;
+	const std::string ext = hl::to_lower(hl::narrow(fs::path(hl::widen(file)).extension().wstring()));
+	if (h264 && aac && one_track && ext == ".mp4")
+		return true; /* plays everywhere as it is */
+
+	wchar_t tmp[MAX_PATH] = {};
+	GetTempPathW(MAX_PATH, tmp);
+	*upload = hl::narrow(
+		(fs::path(tmp) / hl::widen("Highlight-upload-" + std::to_string(GetCurrentProcessId()) + ".mp4")).wstring());
+	*temp = true;
+	if (h264 && aac && (one_track || mix >= 0)) {
+		/* the video and sound are fine: copy them into an MP4 with just that one track */
+		hl::media::TrimOptions opt;
+		opt.format = "mp4";
+		if (mix >= 0)
+			opt.audio_streams = {mix};
+		if (hl::media::trim_lossless(file, *upload, opt, err))
+			return true;
+		*err = "Could not prepare the clip as MP4: " + *err;
+		return false;
+	}
+	hl::media::ShareRequest req;
+	req.input = file;
+	req.output = *upload;
+	req.codec = "h264";
+	req.target_bytes = 0; /* best quality: looks the same as the original */
+	if (mix >= 0)
+		req.audio_streams = {mix};
+	else
+		for (const auto &a : info.audio)
+			req.audio_streams.push_back(a.index);
+	upload_job_.phase = 4;
+	upload_job_.progress = 0;
+	if (hl::media::run_share(req, hl::media::plan_share(info, req), progress, err, nullptr))
+		return true;
+	if (*err != "Cancelled")
+		*err = "Could not make a web copy of the clip: " + *err;
+	return false;
 }
 
 /* The settings, pointed at the endpoint and bucket an upload went to. */
@@ -277,9 +331,10 @@ void AppUI::draw_upload_bar()
 		const int phase = upload_job_.phase;
 		const bool deleting = phase == 2;
 		const float pr = upload_job_.progress.load();
-		std::string line = phase == 3 ? "Deleting older links…"
-				   : deleting ? "Deleting the link…"
-					      : "Uploading “" + upload_name_ + "”";
+		std::string line = phase == 3	? "Deleting older links…"
+				   : phase == 4 ? "Making a web copy of “" + upload_name_ + "”"
+				   : deleting	? "Deleting the link…"
+						: "Uploading “" + upload_name_ + "”";
 		text_ellipsis(dl, fonts.body_medium, p, inner - (deleting ? 0 : px(44)), col::text, line);
 		if (!deleting) {
 			std::string pct = std::to_string((int)(pr * 100)) + "%";

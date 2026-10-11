@@ -126,7 +126,7 @@ Share links need a free Cloudflare account; the clips go to storage that belongs
 4. Back in R2: **Manage API tokens → Create API token**, permission **Object Read & Write**, limited to that bucket. Copy the **Access Key ID** and the **Secret Access Key**.
 5. In Highlight, **Settings → Share links**: paste the Account ID (from the R2 overview page), the two keys, the bucket name and the public address, then press **Test the connection**. For a bucket in the EU jurisdiction, paste the bucket's S3 API address (`https://….eu.r2.cloudflarestorage.com`) instead of the Account ID.
 
-MKV and MOV clips are uploaded as MP4 (same video and audio, no re-encode) so their links play in the browser and in Discord.
+Links always play in every browser, in Discord and on phones: Highlight uploads H.264 video with one AAC sound track (the recorded mix) in an MP4. Clips recorded in HEVC or AV1 (HEVC is the default) get an H.264 web copy on your GPU first, which takes a moment; H.264 clips go up as they are.
 
 The secret key is stored encrypted for your Windows user (DPAPI) in `%APPDATA%\Highlight\settings.json`.
 
